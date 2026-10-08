@@ -1,0 +1,16 @@
+HANDOFF.md
+KICKOFF.md
+CONTINUE.md
+REQUESTS.md
+BUGS2.md
+/bin/
+*.log
+var/
+HANDOFF.md
+KICKOFF.md
+CONTINUE.md
+REQUESTS.md
+BUGS2.md
+NEEDUSER-local.md
+run-next.sh
+run-continue.sh

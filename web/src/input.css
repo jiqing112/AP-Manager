@@ -1,0 +1,205 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Alpine 初始化前隐藏模板，防闪烁 */
+[x-cloak] { display: none !important; }
+
+/* ============ 设计 token：明暗两套 CSS 变量 ============ */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 3.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 3.9%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 240 4.8% 95.9%;
+  --secondary-foreground: 240 5.9% 10%;
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+  --accent: 240 4.8% 95.9%;
+  --accent-foreground: 240 5.9% 10%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --success: 160 84% 32%;
+  --success-foreground: 0 0% 98%;
+  --warning: 32 95% 44%;
+  --warning-foreground: 0 0% 98%;
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 221 83% 53%;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --card: 240 6% 7%;
+  --card-foreground: 0 0% 98%;
+  --popover: 240 6% 7%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 240 3.7% 15.9%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 240 3.7% 13%;
+  --muted-foreground: 240 5% 64.9%;
+  --accent: 240 3.7% 15.9%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 62.8% 50%;
+  --destructive-foreground: 0 0% 98%;
+  --success: 158 64% 42%;
+  --success-foreground: 0 0% 98%;
+  --warning: 36 92% 55%;
+  --warning-foreground: 240 10% 3.9%;
+  --border: 240 3.7% 15.9%;
+  --input: 240 3.7% 17%;
+  --ring: 217 91% 60%;
+}
+
+/* ============ 基础 ============ */
+@layer base {
+  * { @apply border-border; }
+  html { scroll-behavior: smooth; }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "tnum";
+  }
+  ::selection { @apply bg-primary/20; }
+  :focus-visible { @apply outline-none ring-2 ring-ring ring-offset-1 ring-offset-background; }
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+}
+
+/* ============ 组件层：HTML 里不再堆散类 ============ */
+@layer components {
+  /* ---- Button ---- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium
+      transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+      focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50 select-none;
+    padding: 0.5rem 0.875rem; line-height: 1.25rem;
+  }
+  .btn-primary { @apply bg-primary text-primary-foreground shadow-xs hover:bg-primary/90; }
+  .btn-secondary { @apply bg-secondary text-secondary-foreground hover:bg-secondary/70; }
+  .btn-outline { @apply border border-input bg-background hover:bg-accent hover:text-accent-foreground; }
+  .btn-ghost { @apply hover:bg-accent hover:text-accent-foreground; }
+  .btn-destructive { @apply bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90; }
+  .btn-sm { padding: 0.25rem 0.625rem; @apply text-xs rounded-sm; }
+
+  /* ---- Card ---- */
+  .card {
+    @apply rounded-lg border bg-card text-card-foreground shadow-xs;
+  }
+  .card-header { @apply flex flex-col space-y-1 p-5 pb-3; }
+  .card-title { @apply text-base font-semibold leading-none tracking-tight; }
+  .card-desc { @apply text-sm text-muted-foreground; }
+  .card-content { @apply p-5 pt-2; }
+  .card-footer { @apply flex items-center p-5 pt-0; }
+
+  /* ---- Badge ---- */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors;
+  }
+  .badge-default { @apply border-transparent bg-secondary text-secondary-foreground; }
+  .badge-success { @apply border-transparent bg-success/15 text-success; }
+  .badge-warning { @apply border-transparent bg-warning/15 text-warning; }
+  .badge-destructive { @apply border-transparent bg-destructive/15 text-destructive; }
+  .badge-outline { @apply text-foreground; }
+
+  /* ---- 表单 ---- */
+  .label { @apply text-sm font-medium leading-none select-none; }
+  .input {
+    @apply flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs
+      transition-colors placeholder:text-muted-foreground focus-visible:outline-none
+      focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .select { @apply input appearance-none pr-8; background-position: right 0.5rem center; background-size: 1em; }
+  .field-hint { @apply mt-1 text-xs text-muted-foreground; }
+  .field-error { @apply mt-1 text-xs text-destructive; }
+
+  /* ---- Table ---- */
+  .tbl { @apply w-full text-sm; }
+  .tbl thead th { @apply h-10 px-3 text-left align-middle font-medium text-muted-foreground; }
+  .tbl tbody td { @apply px-3 py-2.5 align-middle border-t; }
+  .tbl tbody tr { @apply transition-colors hover:bg-muted/40; }
+
+  /* ---- Dialog ---- */
+  /* 面板用 inset+margin:auto 居中而非 translate，避免与过渡动画的 transform 互相顶掉（弹窗闪跳） */
+  .dialog-overlay {
+    @apply fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px] animate-fade-in;
+  }
+  .dialog-panel {
+    @apply fixed left-0 right-0 top-[10vh] z-50 mx-auto w-[calc(100vw-2rem)] max-w-lg
+      rounded-lg border bg-card p-6 shadow-lg animate-scale-in max-h-[85vh] overflow-y-auto;
+  }
+
+  /* ---- Toast ---- */
+  .toast {
+    @apply pointer-events-auto flex w-[calc(100vw-2rem)] max-w-sm items-start gap-2.5 rounded-lg border
+      bg-popover p-3.5 text-popover-foreground shadow-lg animate-slide-up;
+  }
+
+  /* ---- Switch ---- */
+  .switch {
+    @apply inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2
+      border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2
+      focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .switch-on { @apply bg-primary; }
+  .switch-off { @apply bg-input; }
+  .switch-thumb {
+    @apply pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0
+      transition-transform;
+  }
+  .switch-on .switch-thumb { transform: translateX(1rem); }
+  .switch-off .switch-thumb { transform: translateX(0); }
+
+  /* ---- Skeleton ---- */
+  .skeleton { @apply relative overflow-hidden rounded-md bg-muted; }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0;
+    transform: translateX(-100%);
+    animation: apm-shimmer 1.6s infinite;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+  }
+  @keyframes apm-shimmer { 100% { transform: translateX(100%); } }
+
+  /* ---- EmptyState / Alert ---- */
+  .empty { @apply flex flex-col items-center justify-center gap-2 py-12 text-center; }
+  .alert { @apply flex w-full gap-3 rounded-lg border px-4 py-3 text-sm; }
+  .alert-info { @apply border-primary/30 bg-primary/5 text-foreground; }
+  .alert-warning { @apply border-warning/40 bg-warning/10 text-foreground; }
+  .alert-destructive { @apply border-destructive/40 bg-destructive/10 text-foreground; }
+
+  /* ---- 导航 ---- */
+  .nav-link {
+    @apply flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground
+      transition-colors hover:bg-accent hover:text-accent-foreground;
+  }
+  .nav-link-active { @apply bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary; }
+
+  /* ---- 状态点 ---- */
+  .dot { @apply inline-block h-2 w-2 rounded-full; }
+  .dot-ok { @apply bg-success animate-pulse-soft; }
+  .dot-warn { @apply bg-warning; }
+  .dot-err { @apply bg-destructive; }
+  .dot-off { @apply bg-muted-foreground/40; }
+
+  /* ---- 统计卡数值 ---- */
+  .stat-num { @apply text-2xl font-semibold tracking-tight tabular-nums; }
+
+  /* ---- 滚动条（暗色友好） ---- */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { @apply rounded-full bg-muted-foreground/25; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-muted-foreground/40; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---- 日志/等宽区 ---- */
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+  .logline { @apply mono text-xs leading-5 whitespace-pre-wrap break-all; }
+}

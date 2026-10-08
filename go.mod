@@ -1,0 +1,15 @@
+module apmanager
+
+go 1.24.4
+
+require (
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+	github.com/vishvananda/netlink v1.3.1
+	golang.org/x/crypto v0.36.0
+	gopkg.in/yaml.v3 v3.0.1
+)
+
+require (
+	github.com/vishvananda/netns v0.0.5 // indirect
+	golang.org/x/sys v0.31.0 // indirect
+)

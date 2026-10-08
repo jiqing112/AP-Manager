@@ -1,0 +1,1088 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AP Manager</title>
+  <meta name="description" content="无线路由器管理面板">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="dist/app.css">
+  <script defer src="app.js"></script>
+  <script defer src="vendor/alpine.min.js"></script>
+  <!-- Chart.js 惰性加载：首次进入概览页才由 app.js 注入，省 ~60KB gzip 首屏 -->
+</head>
+<body x-data x-cloak :class="$store.app.dark && 'dark'" class="min-h-screen">
+
+  <!-- ============ 登录页 ============ -->
+  <div x-show="$store.app.page === 'login'" x-transition.opacity class="fixed inset-0 z-40 flex items-center justify-center bg-background p-4">
+    <div class="card w-full max-w-sm animate-scale-in">
+      <div class="card-header items-center text-center">
+        <div class="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/></svg>
+        </div>
+        <h1 class="card-title text-lg">AP Manager</h1>
+        <p class="card-desc">输入管理密码继续</p>
+      </div>
+      <form class="card-content space-y-4" @submit.prevent="$store.app.login($event)">
+        <div class="space-y-1.5">
+          <label class="label" for="pw">管理密码</label>
+          <input id="pw" name="password" type="password" class="input" required autofocus
+                 placeholder="请输入管理密码"
+                 :disabled="$store.app.loginBusy">
+        </div>
+        <p x-show="$store.app.loginErr" x-text="$store.app.loginErr" class="field-error" x-transition></p>
+        <button class="btn btn-primary w-full" type="submit" :disabled="$store.app.loginBusy">
+          <svg x-show="$store.app.loginBusy" class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4z"/></svg>
+          <span x-text="$store.app.loginBusy ? '验证中…' : '登录'"></span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ 应用外壳 ============ -->
+  <template x-if="$store.app.page !== 'login'">
+  <div class="flex min-h-screen">
+    <!-- 侧栏（桌面） -->
+    <aside class="fixed inset-y-0 left-0 z-30 hidden w-56 flex-col border-r bg-card md:flex">
+      <div class="flex h-14 items-center gap-2 border-b px-4">
+        <div class="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/></svg>
+        </div>
+        <span class="font-semibold">AP Manager</span>
+      </div>
+      <nav class="flex-1 space-y-1 overflow-y-auto p-3">
+        <template x-for="item in $store.app.nav" :key="item.id">
+          <a :href="'#/' + item.id" class="nav-link" :class="$store.app.page === item.id && 'nav-link-active'">
+            <span x-html="$store.app.navIcon(item.icon)" class="h-4 w-4 shrink-0 text-current"></span>
+            <span x-text="item.label"></span>
+            <span x-show="item.soon" class="ml-auto badge badge-outline text-[10px] text-muted-foreground">即将</span>
+          </a>
+        </template>
+      </nav>
+      <div class="border-t p-3 text-xs text-muted-foreground">
+        <div class="flex items-center gap-2">
+          <span class="dot" :class="$store.app.sse === 'on' ? 'dot-ok' : ($store.app.sse === 'conn' ? 'dot-warn' : 'dot-err')"></span>
+          <span x-text="$store.app.sse === 'on' ? '实时连接正常' : ($store.app.sse === 'conn' ? '连接中…' : '实时连接断开，重连中')"></span>
+        </div>
+        <div class="mt-1 flex justify-between">
+          <span>v1.0.0</span>
+          <button class="hover:text-foreground" @click="$store.app.toggleDark()" x-text="$store.app.dark ? '☀ 浅色' : '🌙 深色'"></button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 主区 -->
+    <div class="flex min-w-0 flex-1 flex-col md:pl-56">
+      <!-- 顶栏（移动端） -->
+      <header class="sticky top-0 z-20 flex h-14 items-center gap-3 border-b bg-card/95 px-4 backdrop-blur md:hidden">
+        <button class="btn btn-ghost btn-sm" @click="$store.app.drawer = true" aria-label="打开菜单">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
+        </button>
+        <span class="font-semibold">AP Manager</span>
+        <span class="ml-auto"><span class="dot" :class="$store.app.sse === 'on' ? 'dot-ok' : 'dot-err'"></span></span>
+      </header>
+
+      <!-- 页面容器 -->
+      <main class="mx-auto w-full max-w-5xl flex-1 space-y-5 p-4 md:p-6 lg:p-8">
+
+        <!-- ========== 概览 ========== -->
+        <div x-show="$store.app.page === 'overview'" x-transition.opacity.duration.200ms class="space-y-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-semibold tracking-tight">概览</h1>
+              <p class="text-sm text-muted-foreground">网络运行状态一览</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button class="btn btn-outline" @click="$store.app.loadOverview()" :disabled="$store.app.loading.overview">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+                刷新
+              </button>
+            </div>
+          </div>
+
+          <!-- SSE 断开横幅 -->
+          <div x-show="$store.app.sse === 'off'" class="alert alert-warning">
+            <svg xmlns="http://www.w3.org/2000/svg" class="mt-0.5 h-4 w-4 shrink-0 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <span>实时连接已断开，正在自动重连…显示的数据可能过期</span>
+          </div>
+
+          <!-- 统计卡 -->
+          <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div class="card p-4">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-muted-foreground">热点</span>
+                <!-- 快捷启停开关（危险停止走 AP 页的确认流程，这里一键开/一键停） -->
+                <button class="flex items-center gap-2" @click="quickApToggle()" :disabled="$store.app.apBusy"
+                        :aria-label="($store.live.ap.state === 'running' ? '停止' : '启动') + '热点'">
+                  <span class="dot" :class="{'dot-ok': $store.live.ap.state==='running', 'dot-warn': $store.live.ap.state==='starting', 'dot-err': $store.live.ap.state==='failed', 'dot-off': !$store.live.ap.state || $store.live.ap.state==='off'}"></span>
+                  <span x-show="$store.app.apBusy" class="h-3.5 w-3.5 animate-spin" x-html="spinner()"></span>
+                </button>
+              </div>
+              <div class="stat-num mt-1" x-text="$store.live.ap.state === 'running' ? '运行中' : ($store.live.ap.state === 'off' ? '已停止' : (({starting:'启动中',failed:'故障'})[$store.live.ap.state] || '—'))"></div>
+              <div class="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                <span x-text="$store.live.ap.ssid || '—'"></span>
+                <span class="badge badge-outline py-0" x-text="$store.live.ap.band === '2g' ? '2.4G' : ($store.live.ap.band === '5g' ? '5G' : '—')"></span>
+              </div>
+            </div>
+            <div class="card p-4">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-muted-foreground">上游网络</span>
+                <span class="dot" :class="$store.live.upstream.healthy ? 'dot-ok' : 'dot-err'"></span>
+              </div>
+              <div class="stat-num mt-1" x-text="$store.live.upstream.kind === 'eth-wan' ? '有线' : ($store.live.upstream.kind === 'wifi-relay' ? '中继' : '无')"></div>
+              <div class="mt-1 truncate text-xs text-muted-foreground" x-text="$store.live.upstream.iface ? ($store.live.upstream.iface + ($store.live.upstream.healthy ? ' · 联网正常' : ' · 联网异常')) : '未检测到默认路由'"></div>
+            </div>
+            <a href="#/devices" class="card p-4 transition-colors hover:border-primary/40">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-muted-foreground">在线设备</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+              </div>
+              <div class="stat-num mt-1" x-text="onlineCount()"></div>
+              <div class="mt-1 text-xs text-muted-foreground" x-text="'已知设备 ' + knownCount() + ' 台 · 查看 →'"></div>
+            </a>
+            <div class="card p-4">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-muted-foreground">CPU / 内存</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+              </div>
+              <div class="stat-num mt-1">
+                <span x-text="($store.live.system.cpuPercent ?? 0).toFixed(0) + '%'"></span>
+                <span class="text-base text-muted-foreground"> / </span>
+                <span x-text="memUsePct() + '%'"></span>
+              </div>
+              <div class="mt-1 text-xs text-muted-foreground" x-text="'负载 ' + ($store.live.system.load1 ?? 0).toFixed(2)"></div>
+            </div>
+          </div>
+
+          <!-- 实时流量图 -->
+          <div class="card">
+            <div class="card-header flex-row items-center justify-between space-y-0 gap-2">
+              <div>
+                <h3 class="card-title">实时流量</h3>
+                <p class="card-desc">全部接口合计，最近 10 分钟</p>
+              </div>
+              <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-primary"></span>下载 <span class="tabular-nums" x-text="fmtRate(totalRate().rx)"></span></span>
+                <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-success"></span>上传 <span class="tabular-nums" x-text="fmtRate(totalRate().tx)"></span></span>
+              </div>
+            </div>
+            <div class="card-content">
+              <div class="relative h-52"><canvas id="trafficChart"></canvas></div>
+            </div>
+          </div>
+
+          <!-- 接口速览 -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">网络接口</h3>
+              <p class="card-desc">2 秒刷新 · 速率实时</p>
+            </div>
+            <div class="card-content">
+              <template x-if="$store.app.loading.overview">
+                <div class="space-y-2">
+                  <div class="skeleton h-12 w-full"></div>
+                  <div class="skeleton h-12 w-full"></div>
+                  <div class="skeleton h-12 w-full"></div>
+                </div>
+              </template>
+              <template x-if="!$store.app.loading.overview && ($store.live.ifaces || []).length === 0">
+                <div class="empty">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-muted-foreground/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+                  <p class="text-sm text-muted-foreground">未发现网络接口</p>
+                </div>
+              </template>
+              <div class="space-y-2">
+                <!-- lo 回环接口对管理无意义，过滤不展示 -->
+                <template x-for="ifc in ($store.live.ifaces || []).filter(i => i.name !== 'lo')" :key="ifc.name">
+                  <div class="flex items-center gap-3 rounded-md border px-3 py-2.5">
+                    <span class="dot" :class="ifc.operState === 'up' ? 'dot-ok' : 'dot-off'"></span>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex items-center gap-2">
+                        <span class="truncate font-medium" x-text="ifc.name"></span>
+                        <span class="badge badge-default" x-text="{ethernet:'有线',wireless:'无线',bridge:'网桥',loopback:'回环',other:'其他'}[ifc.kind] || ifc.kind"></span>
+                        <span x-show="ifc.role && ifc.role !== 'unused'" class="badge" :class="ifc.role === 'wan' ? 'badge-warning' : 'badge-success'" x-text="{wan:'WAN',lan:'LAN'}[ifc.role] || ifc.role"></span>
+                        <!-- 实际上行口但未纳管（enx 红线）→ 诚实标注，与上游卡信息一致 -->
+                        <span x-show="ifc.role === 'unused' && $store.live.upstream.iface === ifc.name" class="badge badge-outline" title="该口是当前实际上行，未纳入管理（安全红线口）">上行·未管理</span>
+                      </div>
+                      <div class="truncate text-xs text-muted-foreground" x-text="(ifc.addrs && ifc.addrs.length ? ifc.addrs.join(' ') : '无地址') + (ifc.speedMbps ? ' · ' + ifc.speedMbps + 'Mbps' : '')"></div>
+                    </div>
+                    <div class="text-right text-xs tabular-nums text-muted-foreground">
+                      <div>↓ <span x-text="fmtRate(ifc.rxRate)"></span></div>
+                      <div>↑ <span x-text="fmtRate(ifc.txRate)"></span></div>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== 热点（AP） ========== -->
+        <div x-show="$store.app.page === 'ap'" x-transition.opacity.duration.200ms x-data="pageAp()" class="space-y-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-semibold tracking-tight">热点</h1>
+              <p class="text-sm text-muted-foreground">无线发射参数与开关</p>
+            </div>
+            <div class="flex gap-2">
+              <button class="btn btn-primary" @click="action('start')" :disabled="busy || ap.state === 'running' || ap.state === 'starting'">
+                <span x-show="busy === 'start'" class="h-4 w-4 animate-spin" x-html="spinner()"></span>启动
+              </button>
+              <button class="btn btn-outline" @click="action('restart')" :disabled="busy || ap.state !== 'running'">
+                <span x-show="busy === 'restart'" class="h-4 w-4 animate-spin" x-html="spinner()"></span>重启
+              </button>
+              <button class="btn btn-destructive" @click="confirmStop = true" :disabled="busy || ap.state === 'off'">停止</button>
+            </div>
+          </div>
+
+          <!-- 能力提示 -->
+          <div class="alert alert-info" x-show="caps && caps.wireless">
+            <svg xmlns="http://www.w3.org/2000/svg" class="mt-0.5 h-4 w-4 shrink-0 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            <div>
+              网卡 <b x-text="caps?.interface"></b>：支持
+              <template x-for="(b, i) in (caps?.wireless?.bands || [])" :key="b">
+                <span x-text="(i ? '、' : '') + (b === '2g' ? '2.4GHz' : '5GHz')"></span>
+              </template>
+              频段；
+              <span x-text="caps?.wireless?.comboSupported ? '支持多接口组合' : '不支持多接口并存（热点与中继互斥，开启中继会自动停止热点）'"></span>
+            </div>
+          </div>
+          <div class="alert alert-destructive" x-show="caps && caps.wireless && !caps.wireless.capAP">
+            <span>该网卡不支持 AP 模式，无法发射 WiFi（可使用中继功能）</span>
+          </div>
+
+          <!-- 状态卡 -->
+          <div class="card">
+            <div class="card-header flex-row items-center justify-between space-y-0">
+              <div class="flex items-center gap-2.5">
+                <span class="dot" :class="{'dot-ok': ap.state === 'running', 'dot-warn': ap.state === 'starting', 'dot-err': ap.state === 'failed', 'dot-off': ap.state === 'off'}"></span>
+                <h3 class="card-title" x-text="'当前状态：' + ({off:'已停止', starting:'启动中', running:'运行中', failed:'故障'})[ap.state || 'off']"></h3>
+              </div>
+              <span class="badge badge-outline" x-show="ap.state === 'running'" x-text="'已连接 ' + (ap.clients || []).length + ' 台'"></span>
+            </div>
+            <div class="card-content" x-show="ap.detail" x-text="ap.detail" class="text-sm text-destructive"></div>
+            <div class="card-content" x-show="ap.state === 'running' && (ap.clients || []).length">
+              <div class="tbl-wrap overflow-x-auto">
+                <table class="tbl">
+                  <thead><tr><th>客户端</th><th>信号</th><th>已连接</th><th>流量 ↓/↑</th></tr></thead>
+                  <tbody>
+                    <template x-for="c in ap.clients || []" :key="c.mac">
+                      <tr>
+                        <td class="mono" x-text="c.mac"></td>
+                        <td><span class="badge" :class="c.signal > -60 ? 'badge-success' : (c.signal > -75 ? 'badge-warning' : 'badge-destructive')" x-text="c.signal + ' dBm'"></span></td>
+                        <td x-text="fmtDur(c.connectedSec)"></td>
+                        <td class="tabular-nums" x-text="fmtBytes(c.rxBytes) + ' / ' + fmtBytes(c.txBytes)"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 当前热点信息 -->
+          <div class="card">
+            <div class="card-header flex-row items-center justify-between space-y-0">
+              <div>
+                <h3 class="card-title">当前热点信息</h3>
+                <p class="card-desc">手机扫码或手动输入即可连接（内容为已保存生效的配置）</p>
+              </div>
+              <button type="button" class="btn btn-outline btn-sm" @click="openQR()">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3z"/><path d="M21 14v.01"/><path d="M14 21v.01"/><path d="M17 17l4 4"/><path d="M21 21h.01"/></svg>
+                扫码连接
+              </button>
+            </div>
+            <div class="card-content grid gap-x-6 gap-y-3 sm:grid-cols-2">
+              <div class="flex items-center justify-between gap-3 sm:col-span-2">
+                <span class="text-sm text-muted-foreground">热点名</span>
+                <span class="mono text-sm font-medium" x-text="form.ssid || '—'"></span>
+              </div>
+              <div class="flex items-center justify-between gap-3 sm:col-span-2">
+                <span class="text-sm text-muted-foreground">密码</span>
+                <span class="flex items-center gap-2">
+                  <span class="mono text-sm font-medium" x-text="showPw ? (form.password || '—') : '••••••••'"></span>
+                  <button type="button" class="text-xs text-muted-foreground hover:text-foreground underline-offset-2 hover:underline" @click="showPw = !showPw" x-text="showPw ? '隐藏' : '显示'"></button>
+                </span>
+              </div>
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-sm text-muted-foreground">频段 / 信道</span>
+                <span class="text-sm font-medium" x-text="(form.band === '5g' ? '5 GHz' : '2.4 GHz') + ' · 信道 ' + (form.channel || 'auto')"></span>
+              </div>
+              <div class="flex items-center justify-between gap-3">
+                <span class="text-sm text-muted-foreground">加密方式</span>
+                <span class="text-sm font-medium" x-text="({wpa2:'WPA2-PSK', wpa3:'WPA3-SAE', wpa2wpa3:'WPA2/WPA3 混合', open:'开放'})[form.security] || form.security"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 参数表单 -->
+          <form class="card" @submit.prevent="save()">
+            <div class="card-header flex-row items-center justify-between space-y-0">
+              <div>
+                <h3 class="card-title">无线参数</h3>
+                <p class="card-desc">保存后如热点正在运行会自动重启生效</p>
+              </div>
+              <span class="badge badge-warning" x-show="isDirty() && !saving" x-cloak>未保存</span>
+            </div>
+            <div class="card-content space-y-6">
+              <!-- 基本 -->
+              <div>
+                <div class="mb-3 flex items-center gap-2">
+                  <span class="text-[11px] font-medium tracking-wider text-muted-foreground">基本</span>
+                  <span class="h-px flex-1 bg-border"></span>
+                </div>
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <div class="space-y-1.5">
+                    <label class="label" for="f-ssid">SSID（网络名称）</label>
+                    <input id="f-ssid" class="input" x-model="form.ssid" required maxlength="32" placeholder="My-WiFi" autocomplete="off">
+                  </div>
+                  <div class="flex h-[38px] items-center justify-between rounded-md border px-3 transition-colors" :class="form.hidden ? 'border-primary/40 bg-primary/5' : ''">
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm">隐藏 SSID</span>
+                      <span class="text-xs text-muted-foreground">不广播名称</span>
+                    </div>
+                    <button type="button" role="switch" :aria-checked="form.hidden" class="switch" :class="form.hidden ? 'switch-on' : 'switch-off'" @click="form.hidden = !form.hidden">
+                      <span class="switch-thumb"></span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <!-- 安全 -->
+              <div>
+                <div class="mb-3 flex items-center gap-2">
+                  <span class="text-[11px] font-medium tracking-wider text-muted-foreground">安全</span>
+                  <span class="h-px flex-1 bg-border"></span>
+                </div>
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <div class="space-y-1.5">
+                    <label class="label" for="f-sec">加密方式</label>
+                    <select id="f-sec" class="input" x-model="form.security">
+                      <option value="wpa2wpa3">WPA2/WPA3 混合（推荐）</option>
+                      <option value="wpa2">WPA2-PSK（兼容性最好）</option>
+                      <option value="wpa3">WPA3-SAE（新设备）</option>
+                    </select>
+                  </div>
+                  <div class="space-y-1.5">
+                    <label class="label" for="f-pass">密码</label>
+                    <div class="relative">
+                      <input id="f-pass" class="input pr-14" :type="showPw ? 'text' : 'password'" x-model="form.password" required minlength="8" maxlength="63" autocomplete="new-password">
+                      <span class="absolute inset-y-0 right-2 flex items-center gap-1.5">
+                        <button type="button" class="text-muted-foreground hover:text-foreground" @click="genPw()" title="生成随机强密码" aria-label="生成随机强密码">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/></svg>
+                        </button>
+                        <button type="button" class="text-muted-foreground hover:text-foreground" @click="showPw = !showPw" :aria-label="showPw ? '隐藏密码' : '显示密码'">
+                          <svg x-show="!showPw" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                          <svg x-show="showPw" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></svg>
+                        </button>
+                      </span>
+                    </div>
+                    <p class="field-hint">8–63 位；魔棒可生成 16 位随机强密码</p>
+                  </div>
+                </div>
+              </div>
+              <!-- 射频 -->
+              <div>
+                <div class="mb-3 flex items-center gap-2">
+                  <span class="text-[11px] font-medium tracking-wider text-muted-foreground">射频</span>
+                  <span class="h-px flex-1 bg-border"></span>
+                </div>
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <div class="space-y-1.5">
+                    <label class="label" for="f-band">频段</label>
+                    <select id="f-band" class="input" x-model="form.band" @change="onBandChange()">
+                      <option value="2g" :disabled="!bandAvail('2g')">2.4 GHz</option>
+                      <option value="5g" :disabled="!bandAvail('5g')">5 GHz</option>
+                    </select>
+                  </div>
+                  <div class="space-y-1.5">
+                    <label class="label" for="f-chan">信道</label>
+                    <select id="f-chan" class="input" x-model.number="form.channel">
+                      <option value="0">自动（ACS）</option>
+                      <template x-for="ch in channelsFor()" :key="ch">
+                        <option :value="ch" x-text="'信道 ' + ch"></option>
+                      </template>
+                    </select>
+                  </div>
+                  <div class="space-y-1.5">
+                    <label class="label" for="f-bw">频宽</label>
+                    <select id="f-bw" class="input" x-model="form.bandwidth">
+                      <option value="20mhz">20 MHz（稳定）</option>
+                      <option value="40mhz">40 MHz</option>
+                      <option value="80mhz" x-show="form.band === '5g'" :disabled="form.band !== '5g'">80 MHz（仅 5G）</option>
+                    </select>
+                  </div>
+                  <div class="space-y-1.5">
+                    <label class="label" for="f-max">最大连接数</label>
+                    <input id="f-max" class="input" type="number" min="1" max="64" x-model.number="form.maxClients">
+                    <p class="field-hint">1–64 台</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="card-footer justify-end gap-2">
+              <p class="field-error mr-auto" x-show="formErr" x-text="formErr"></p>
+              <button type="button" class="btn btn-outline" @click="reset()" :disabled="!isDirty() || saving">还原</button>
+              <button type="submit" class="btn btn-primary" :disabled="saving || !isDirty()">
+                <span x-show="saving" class="h-4 w-4 animate-spin" x-html="spinner()"></span>
+                <span x-text="saving ? '保存中…' : '保存并生效'"></span>
+              </button>
+            </div>
+          </form>
+
+          <!-- 扫码连接二维码 -->
+          <div x-show="qrOpen" class="dialog-overlay" @click="qrOpen = false"></div>
+          <div x-show="qrOpen" class="dialog-panel max-w-sm" role="dialog" aria-modal="true" aria-label="扫码连接热点" @keydown.escape.window="qrOpen = false">
+            <h3 class="text-lg font-semibold">扫码连接热点</h3>
+            <p class="mt-1 text-sm text-muted-foreground">用手机相机或扫一扫对准二维码，即可自动连接</p>
+            <div class="mt-4 flex justify-center rounded-md border bg-white p-3 dark:bg-white">
+              <img alt="热点连接二维码" class="h-56 w-56" x-show="qrOpen" @click="qrTs = Date.now()" :src="qrOpen ? '/api/ap/qrcode.png?t=' + qrTs : 'data:image/gif;base64,R0lGODlhAQABAAAAACw='">
+            </div>
+            <div class="mt-4 space-y-1 text-center text-sm">
+              <div><span class="text-muted-foreground">热点名：</span><span class="mono font-medium" x-text="form.ssid"></span></div>
+              <div><span class="text-muted-foreground">密码：</span><span class="mono font-medium" x-text="form.password"></span></div>
+            </div>
+            <div class="mt-6 flex justify-end">
+              <button class="btn btn-outline" @click="qrOpen = false">关闭</button>
+            </div>
+          </div>
+
+          <!-- 停止确认（与表单同组件，共享 confirmStop） -->
+          <div x-show="confirmStop" class="dialog-overlay" @click="confirmStop = false"></div>
+          <div x-show="confirmStop" class="dialog-panel max-w-md" role="dialog" aria-modal="true" aria-label="确认停止热点" @keydown.escape.window="confirmStop = false">
+            <h3 class="text-lg font-semibold">停止热点？</h3>
+            <p class="mt-2 text-sm text-muted-foreground">所有已连接的无线设备将立即断网。DHCP 与 NAT 规则也会一并撤下。</p>
+            <div class="mt-6 flex justify-end gap-2">
+              <button class="btn btn-outline" @click="confirmStop = false">取消</button>
+              <button class="btn btn-destructive" @click="action('stop')">确认停止</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== 设备 ========== -->
+        <div x-show="$store.app.page === 'devices'" x-data="pageDevices()" x-transition.opacity.duration.200ms class="space-y-5">
+          <div>
+            <h1 class="text-xl font-semibold tracking-tight">设备</h1>
+            <p class="text-sm text-muted-foreground">接入终端：备注 / 限速 / 踢下线 / 拉黑</p>
+          </div>
+          <div class="card">
+            <div class="card-content p-0">
+              <template x-if="!loaded">
+                <div class="space-y-2 p-5"><div class="skeleton h-10 w-full"></div><div class="skeleton h-10 w-full"></div><div class="skeleton h-10 w-full"></div></div>
+              </template>
+              <template x-if="loaded && ($store.live.devices || []).length === 0">
+                <div class="empty">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-muted-foreground/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><path d="M2 10h20"/></svg>
+                  <p class="text-sm text-muted-foreground">还没有设备接入</p>
+                  <p class="text-xs text-muted-foreground">开启 AP 后，用手机或电脑连接 WiFi 即可出现在这里</p>
+                </div>
+              </template>
+              <div class="overflow-x-auto" x-show="loaded">
+                <table class="tbl">
+                  <thead><tr><th>设备</th><th>IP 地址</th><th>来源</th><th class="hidden sm:table-cell">信号</th><th class="hidden md:table-cell">流量 ↓/↑</th><th>限速 ↓/↑</th><th>状态</th><th class="text-right">操作</th></tr></thead>
+                  <tbody>
+                    <template x-for="d in $store.live.devices || []" :key="d.mac">
+                      <tr :class="d.blocked && 'opacity-60'">
+                        <td>
+                          <div class="flex items-center gap-1.5">
+                            <span class="font-medium" x-text="d.alias || d.hostname || d.mac"></span>
+                            <span x-show="d.blocked" class="badge badge-destructive">已拉黑</span>
+                          </div>
+                          <div class="text-xs text-muted-foreground mono" x-text="d.mac"></div>
+                        </td>
+                        <td class="mono" x-text="d.ip || '—'"></td>
+                        <td><span class="badge" :class="d.source === 'wifi' ? 'badge-success' : 'badge-default'" x-text="d.source === 'wifi' ? '无线' : (d.source === 'wired' ? '有线' : '未知')"></span></td>
+                        <td class="hidden sm:table-cell"><span x-show="d.source === 'wifi'" x-text="d.signal ? d.signal + ' dBm' : '—'"></span><span x-show="d.source !== 'wifi'">—</span></td>
+                        <td class="hidden md:table-cell tabular-nums text-xs" x-text="fmtBytes(d.rxBytes) + ' / ' + fmtBytes(d.txBytes)"></td>
+                        <td>
+                          <button x-show="d.rateDown || d.rateUp" class="badge badge-warning cursor-pointer" @click="editRate(d)" x-text="(d.rateDown || '∞') + ' / ' + (d.rateUp || '∞') + ' Mbps'"></button>
+                          <button x-show="!d.rateDown && !d.rateUp" class="badge badge-outline cursor-pointer text-muted-foreground" @click="editRate(d)">不限速</button>
+                        </td>
+                        <td><span class="dot" :class="d.online ? 'dot-ok' : 'dot-off'"></span></td>
+                        <td class="text-right">
+                          <div class="flex justify-end gap-1">
+                            <button class="btn btn-ghost btn-sm" title="备注" @click="editAlias(d)">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                            </button>
+                            <button class="btn btn-ghost btn-sm" title="踢下线" @click="kick(d)" :disabled="!d.online">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 9-5 5 5 5M20 4v7a4 4 0 0 1-4 4H4"/></svg>
+                            </button>
+                            <button class="btn btn-ghost btn-sm" :class="d.blocked ? 'text-success' : ''" :title="d.blocked ? '解除拉黑' : '拉黑'" @click="toggleBlock(d)">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 备注对话框 -->
+          <div x-show="aliasDlg.open" class="dialog-overlay" @click="aliasDlg.open = false"></div>
+          <div x-show="aliasDlg.open" class="dialog-panel max-w-sm" role="dialog" aria-modal="true" @keydown.escape.window="aliasDlg.open = false">
+            <h3 class="text-lg font-semibold">设备备注</h3>
+            <p class="mt-1 text-xs text-muted-foreground mono" x-text="aliasDlg.mac"></p>
+            <div class="mt-4 space-y-1.5">
+              <label class="label">名称</label>
+              <input class="input" x-model="aliasDlg.alias" placeholder="如：客厅电视" maxlength="32">
+            </div>
+            <div class="mt-6 flex justify-end gap-2">
+              <button class="btn btn-outline" @click="aliasDlg.open = false">取消</button>
+              <button class="btn btn-primary" @click="saveAlias()">保存</button>
+            </div>
+          </div>
+
+          <!-- 限速对话框 -->
+          <div x-show="rateDlg.open" class="dialog-overlay" @click="rateDlg.open = false"></div>
+          <div x-show="rateDlg.open" class="dialog-panel max-w-md" role="dialog" aria-modal="true" @keydown.escape.window="rateDlg.open = false">
+            <h3 class="text-lg font-semibold">设备限速</h3>
+            <p class="mt-1 text-xs text-muted-foreground mono" x-text="rateDlg.mac + ' · ' + (rateDlg.ip || '')"></p>
+            <div class="mt-4 grid grid-cols-2 gap-4">
+              <div class="space-y-2">
+                <label class="label">下行 <span class="text-muted-foreground tabular-nums" x-text="rateDlg.down + ' Mbps'"></span></label>
+                <input type="range" min="0" max="200" step="5" class="w-full accent-[hsl(var(--primary))]" x-model.number="rateDlg.down">
+                <p class="field-hint">0 = 不限</p>
+              </div>
+              <div class="space-y-2">
+                <label class="label">上行 <span class="text-muted-foreground tabular-nums" x-text="rateDlg.up + ' Mbps'"></span></label>
+                <input type="range" min="0" max="200" step="5" class="w-full accent-[hsl(var(--primary))]" x-model.number="rateDlg.up">
+                <p class="field-hint">0 = 不限</p>
+              </div>
+            </div>
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <button class="btn btn-outline btn-sm" @click="rateDlg.down = 20; rateDlg.up = 5">20/5</button>
+              <button class="btn btn-outline btn-sm" @click="rateDlg.down = 50; rateDlg.up = 10">50/10</button>
+              <button class="btn btn-outline btn-sm" @click="rateDlg.down = 100; rateDlg.up = 20">100/20</button>
+              <button class="btn btn-outline btn-sm" @click="rateDlg.down = 0; rateDlg.up = 0">不限</button>
+            </div>
+            <div class="mt-6 flex justify-end gap-2">
+              <button class="btn btn-outline" @click="rateDlg.open = false">取消</button>
+              <button class="btn btn-primary" @click="saveRate()">保存并生效</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== 网口 ========== -->
+        <div x-show="$store.app.page === 'ports'" x-data="pagePorts()" x-transition.opacity.duration.200ms class="space-y-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-semibold tracking-tight">网口</h1>
+              <p class="text-sm text-muted-foreground">角色分配（WAN/LAN）、网段与安全应用</p>
+            </div>
+            <button class="btn btn-primary" @click="openPlan()" :disabled="dirty() === false || planDlg.loading">
+              <span x-show="planDlg.loading" class="h-4 w-4 animate-spin" x-html="spinner()"></span>
+              应用变更
+            </button>
+          </div>
+
+          <!-- 待确认横幅（倒计时） -->
+          <div x-show="pending" class="alert alert-warning items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="mt-0.5 h-4 w-4 shrink-0 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <div class="flex-1">
+              <b x-text="pending()?.description"></b> 已应用，等待确认——
+              <span class="tabular-nums font-semibold" x-text="countdown() + 's'"></span> 内未确认将自动回滚。
+              网络正常就点确认。
+            </div>
+            <div class="flex gap-2">
+              <button class="btn btn-primary btn-sm" @click="confirmApply()">确认保留</button>
+              <button class="btn btn-outline btn-sm" @click="rollbackApply()">撤销回滚</button>
+            </div>
+          </div>
+
+          <!-- 端口卡片 -->
+          <div class="grid gap-3 md:grid-cols-2">
+            <template x-for="p in ports" :key="p.name">
+              <div class="card p-4">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="dot" :class="(ifaceByName(p.name)||{}).operState === 'up' ? 'dot-ok' : 'dot-off'"></span>
+                    <span class="font-semibold" x-text="p.name"></span>
+                    <span class="badge badge-default" x-text="portKindLabel(p.name)"></span>
+                  </div>
+                  <span class="badge" :class="p.role === 'wan' ? 'badge-warning' : (p.role === 'lan' ? 'badge-success' : 'badge-outline')" x-text="roleLabel(p.role)"></span>
+                </div>
+                <div class="mt-3 space-y-1 text-sm">
+                  <div class="flex justify-between"><span class="text-muted-foreground">地址</span><span class="mono text-xs" x-text="((ifaceByName(p.name)||{}).addrs || []).filter(a => !a.includes('fe80::')).join(' ') || '—'"></span></div>
+                  <div class="flex justify-between" x-show="p.role === 'lan'"><span class="text-muted-foreground">网桥</span><span class="mono text-xs" x-text="p.bridge"></span></div>
+                  <div class="flex justify-between" x-show="p.role === 'wan' && p.wan"><span class="text-muted-foreground">接入</span><span class="text-xs" x-text="({dhcp:'DHCP', static:'静态', pppoe:'PPPoE'})[p.wan?.mode] || '—'"></span></div>
+                  <div class="flex justify-between"><span class="text-muted-foreground">实时 ↓/↑</span><span class="tabular-nums text-xs" x-text="fmtRate((ifaceByName(p.name)||{}).rxRate) + ' / ' + fmtRate((ifaceByName(p.name)||{}).txRate)"></span></div>
+                </div>
+                <div class="mt-3 flex justify-end">
+                  <button class="btn btn-outline btn-sm" @click="editPort(p)">编辑角色</button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- LAN 网段 -->
+          <div class="card">
+            <div class="card-header flex-row items-center justify-between space-y-0">
+              <div>
+                <h3 class="card-title">LAN 网段</h3>
+                <p class="card-desc">每段一桥一子网一地址池；隔离段内客户端互访被禁止</p>
+              </div>
+              <button class="btn btn-outline btn-sm" @click="addSeg()">添加网段</button>
+            </div>
+            <div class="card-content space-y-3">
+              <template x-if="lan.length === 0">
+                <p class="text-sm text-muted-foreground">没有 LAN 网段</p>
+              </template>
+              <template x-for="(seg, i) in lan" :key="seg.name">
+                <div class="rounded-md border p-3">
+                  <div class="grid gap-3 sm:grid-cols-2">
+                    <div class="space-y-1">
+                      <label class="label text-xs">名称</label>
+                      <input class="input" x-model="seg.name" :disabled="seg.ap">
+                      <p class="field-hint" x-show="seg.ap">AP 所在段（名称固定）</p>
+                    </div>
+                    <div class="space-y-1">
+                      <label class="label text-xs">子网（网关地址/前缀）</label>
+                      <input class="input mono" x-model="seg.subnet" placeholder="192.168.60.1/24">
+                    </div>
+                    <div class="space-y-1">
+                      <label class="label text-xs">DHCP 池</label>
+                      <div class="flex gap-2">
+                        <input class="input mono" x-model="seg.dhcpPool[0]">
+                        <input class="input mono" x-model="seg.dhcpPool[1]">
+                      </div>
+                    </div>
+                    <div class="space-y-1">
+                      <label class="label text-xs">租期（小时）</label>
+                      <input class="input" type="number" min="1" max="168" x-model.number="seg.leaseHours">
+                    </div>
+                  </div>
+                  <div class="mt-3 flex flex-wrap items-center gap-4">
+                    <label class="flex items-center gap-2 text-sm">
+                      <input type="checkbox" class="h-4 w-4 accent-[hsl(var(--primary))]" x-model="seg.isolation">
+                      客户端隔离（访客网用）
+                    </label>
+                    <span class="badge badge-outline mono" x-text="seg.bridge || 'AP 直挂'"></span>
+                    <button class="btn btn-ghost btn-sm text-destructive ml-auto" x-show="!seg.ap" @click="delSeg(i)">删除段</button>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- 端口角色编辑对话框 -->
+          <div x-show="portDlg.open" class="dialog-overlay" @click="portDlg.open = false"></div>
+          <div x-show="portDlg.open" class="dialog-panel max-w-md" role="dialog" aria-modal="true" @keydown.escape.window="portDlg.open = false">
+            <h3 class="text-lg font-semibold">编辑端口角色：<span x-text="portDlg.name"></span></h3>
+            <div class="mt-4 space-y-4">
+              <div class="space-y-1.5">
+                <label class="label">角色</label>
+                <select class="input" x-model="portDlg.role">
+                  <option value="unused">未使用</option>
+                  <option value="lan">LAN（接终端，挂网桥）</option>
+                  <option value="wan">WAN（接上级网络）</option>
+                </select>
+              </div>
+              <div class="space-y-1.5" x-show="portDlg.role === 'lan'">
+                <label class="label">所属网桥（LAN 段）</label>
+                <select class="input" x-model="portDlg.bridge">
+                  <template x-for="seg in lan.filter(s => s.bridge)" :key="seg.bridge">
+                    <option :value="seg.bridge" x-text="seg.bridge + '（' + seg.name + '）'"></option>
+                  </template>
+                </select>
+                <p class="field-hint">网段在下方「LAN 网段」卡片里维护</p>
+              </div>
+              <template x-if="portDlg.role === 'wan'">
+                <div class="space-y-4">
+                  <div class="space-y-1.5">
+                    <label class="label">接入方式</label>
+                    <select class="input" x-model="portDlg.wanMode">
+                      <option value="dhcp">DHCP（自动获取）</option>
+                      <option value="static">静态 IP</option>
+                      <option value="pppoe" disabled>PPPoE（阶段六开放）</option>
+                    </select>
+                  </div>
+                  <template x-if="portDlg.wanMode === 'static'">
+                    <div class="space-y-3">
+                      <div class="space-y-1.5">
+                        <label class="label">IP/前缀</label>
+                        <input class="input mono" x-model="portDlg.addr" placeholder="192.168.1.10/24"
+                               :class="portDlg.addr && !isValidCIDR(portDlg.addr) && 'border-destructive'">
+                        <p class="field-error" x-show="portDlg.addr && !isValidCIDR(portDlg.addr)" x-text="'格式应为 a.b.c.d/n，当前：' + (portDlg.addr || '')"></p>
+                      </div>
+                      <div class="space-y-1.5">
+                        <label class="label">网关</label>
+                        <input class="input mono" x-model="portDlg.gw" placeholder="192.168.1.1"
+                               :class="portDlg.gw && !isValidIP(portDlg.gw) && 'border-destructive'">
+                        <p class="field-error" x-show="portDlg.gw && !isValidIP(portDlg.gw)">不是合法的 IP 地址</p>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+            </div>
+            <div class="mt-6 flex justify-end gap-2">
+              <button class="btn btn-outline" @click="portDlg.open = false">取消</button>
+              <button class="btn btn-primary" @click="savePort()">保存到方案</button>
+            </div>
+          </div>
+
+          <!-- 应用确认对话框（方案预检 → 风险确认） -->
+          <div x-show="planDlg.open" class="dialog-overlay"></div>
+          <div x-show="planDlg.open" class="dialog-panel max-w-lg" role="dialog" aria-modal="true" @keydown.escape.window="planDlg.open = false">
+            <h3 class="text-lg font-semibold">应用网口变更</h3>
+            <template x-if="planDlg.loading">
+              <div class="mt-6 flex justify-center"><div class="skeleton h-6 w-48"></div></div>
+            </template>
+            <template x-if="!planDlg.loading">
+              <div class="mt-4 space-y-3">
+                <template x-if="planDlg.errors.length">
+                  <div class="alert alert-destructive">
+                    <div class="text-sm">
+                      <p class="font-semibold mb-1">方案有误，无法应用：</p>
+                      <ul class="list-disc pl-4 space-y-0.5"><template x-for="e in planDlg.errors" :key="e"><li x-text="e"></li></template></ul>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="planDlg.warns.length">
+                  <div class="alert alert-warning">
+                    <div class="text-sm">
+                      <p class="font-semibold mb-1">注意：</p>
+                      <ul class="list-disc pl-4 space-y-0.5"><template x-for="e in planDlg.warns" :key="e"><li x-text="e"></li></template></ul>
+                    </div>
+                  </div>
+                </template>
+                <template x-if="planDlg.risks.length">
+                  <div class="alert alert-destructive">
+                    <div class="text-sm">
+                      <p class="font-semibold mb-1">风险（可能失联，有 60s 自动回滚保护）：</p>
+                      <ul class="list-disc pl-4 space-y-0.5"><template x-for="e in planDlg.risks" :key="e"><li x-text="e"></li></template></ul>
+                    </div>
+                  </div>
+                </template>
+                <p class="text-sm text-muted-foreground">应用后有 <b>60 秒确认窗口</b>：期间网络异常或未点「确认保留」，一切会自动恢复原状。</p>
+                <label x-show="planDlg.risks.length" class="flex items-center gap-2 text-sm font-medium">
+                  <input type="checkbox" class="h-4 w-4 accent-[hsl(var(--destructive))]" x-model="planDlg.ack">
+                  我知道风险，仍要应用
+                </label>
+              </div>
+            </template>
+            <div class="mt-6 flex justify-end gap-2">
+              <button class="btn btn-outline" @click="planDlg.open = false">取消</button>
+              <button class="btn btn-primary" :disabled="planDlg.loading || planDlg.errors.length > 0 || (planDlg.risks.length > 0 && !planDlg.ack)" @click="doApply()">立即应用</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== 中继 ========== -->
+        <div x-show="$store.app.page === 'relay'" x-data="pageRelay()" x-transition.opacity.duration.200ms class="space-y-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-semibold tracking-tight">中继</h1>
+              <p class="text-sm text-muted-foreground">连接上游 WiFi，作为这台机器的上行</p>
+            </div>
+            <div class="flex gap-2">
+              <button class="btn btn-outline" @click="scan(false)" :disabled="scanning || disconnecting">
+                <span x-show="scanning" class="h-4 w-4 animate-spin" x-html="spinner()"></span>
+                <span x-text="scanning ? '扫描中…' : '扫描周围 WiFi'"></span>
+              </button>
+              <button x-show="status.state === 'connected'" class="btn btn-destructive" @click="disconnect()" :disabled="disconnecting">断开</button>
+            </div>
+          </div>
+
+          <!-- 互斥提示 -->
+          <div class="alert alert-warning" x-show="caps && !caps.comboSupported">
+            <svg xmlns="http://www.w3.org/2000/svg" class="mt-0.5 h-4 w-4 shrink-0 text-warning" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+            <span>这张网卡（驱动）未声明 AP+STA 并存能力：<b>开启中继会自动停止热点</b>，断开中继后需手动重新开启热点。</span>
+          </div>
+
+          <!-- 当前上游状态卡 -->
+          <div class="card">
+            <div class="card-header flex-row items-center justify-between space-y-0">
+              <div class="flex items-center gap-2.5">
+                <span class="dot" :class="{'dot-ok': status.state === 'connected', 'dot-warn': status.state === 'connecting' || status.state === 'backoff' || status.state === 'scanning', 'dot-err': status.state === 'failed', 'dot-off': status.state === 'off'}"></span>
+                <h3 class="card-title" x-text="'当前状态：' + ({off:'未连接', scanning:'扫描中', connecting:'连接中', connected:'已连接', backoff:'重连中', failed:'故障'})[status.state || 'off']"></h3>
+              </div>
+              <span class="badge badge-outline" x-show="status.state === 'connected'" x-text="status.signal ? status.signal + ' dBm' : ''"></span>
+            </div>
+            <div class="card-content">
+              <template x-if="status.state === 'off' || status.state === 'failed'">
+                <p class="text-sm text-muted-foreground" x-text="status.detail || '未连接任何上游。扫描后选择一个 WiFi 连接。'"></p>
+              </template>
+              <template x-if="status.state !== 'off' && status.state !== 'failed'">
+                <div class="grid gap-3 sm:grid-cols-3">
+                  <div><span class="text-xs text-muted-foreground">SSID</span><div class="font-medium" x-text="status.ssid || '—'"></div></div>
+                  <div><span class="text-xs text-muted-foreground">IP 地址</span><div class="mono text-sm" x-text="status.ip || '获取中…'"></div></div>
+                  <div><span class="text-xs text-muted-foreground">最近事件</span><div class="truncate font-mono text-xs" x-text="status.lastEvent || '—'"></div></div>
+                </div>
+              </template>
+              <p class="field-error" x-show="status.detail && status.state === 'failed'" x-text="status.detail"></p>
+            </div>
+          </div>
+
+          <!-- 扫描结果 -->
+          <div class="card">
+            <div class="card-header flex-row items-center justify-between space-y-0">
+              <div>
+                <h3 class="card-title">可用网络</h3>
+                <p class="card-desc" x-text="results.length ? '按信号强度排序' : '尚未扫描'"></p>
+              </div>
+            </div>
+            <div class="card-content p-0">
+              <template x-if="scanning && results.length === 0">
+                <div class="space-y-2 p-5"><div class="skeleton h-10 w-full"></div><div class="skeleton h-10 w-full"></div><div class="skeleton h-10 w-full"></div></div>
+              </template>
+              <template x-if="!scanning && results.length === 0">
+                <div class="empty">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-muted-foreground/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                  <p class="text-sm text-muted-foreground">点击右上角「扫描周围 WiFi」</p>
+                </div>
+              </template>
+              <div class="overflow-x-auto" x-show="results.length > 0">
+                <table class="tbl">
+                  <thead><tr><th>网络</th><th>频段</th><th>信道</th><th>信号</th><th>加密</th><th></th></tr></thead>
+                  <tbody>
+                    <template x-for="b in results" :key="b.bssid">
+                      <tr>
+                        <td>
+                          <div class="font-medium" x-text="b.ssid"></div>
+                          <div class="text-xs text-muted-foreground mono" x-text="b.bssid"></div>
+                        </td>
+                        <td x-text="b.band === '2g' ? '2.4G' : '5G'"></td>
+                        <td class="tabular-nums" x-text="b.channel"></td>
+                        <td>
+                          <div class="flex items-center gap-1.5">
+                            <div class="flex h-4 items-end gap-0.5">
+                              <template x-for="i in 4" :key="i">
+                                <div class="w-1 rounded-sm" :class="sigBars(b.signal) >= i ? 'bg-success' : 'bg-muted'" :style="'height:' + (3 + i * 3) + 'px'"></div>
+                              </template>
+                            </div>
+                            <span class="text-xs tabular-nums text-muted-foreground" x-text="b.signal + ' dBm'"></span>
+                          </div>
+                        </td>
+                        <td><span class="badge" :class="secBadge(b.security).cls" x-text="secBadge(b.security).label"></span></td>
+                        <td class="text-right">
+                          <button class="btn btn-primary btn-sm" @click="openConnect(b)" x-text="b.security === 'open' ? '连接' : '输入密码连接'"></button>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- 已存上游 -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">已保存的上游</h3>
+              <p class="card-desc">按优先级自动切换（当前连接断开且重试失败后）</p>
+            </div>
+            <div class="card-content">
+              <template x-if="saved.length === 0">
+                <p class="text-sm text-muted-foreground">暂无。连接时勾选「保存」即可。</p>
+              </template>
+              <div class="space-y-2">
+                <template x-for="n in saved" :key="n.ssid">
+                  <div class="flex items-center justify-between rounded-md border px-3 py-2">
+                    <div class="flex items-center gap-2">
+                      <span class="font-medium" x-text="n.ssid"></span>
+                      <span x-show="status.ssid === n.ssid" class="badge badge-success">当前</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs text-muted-foreground" x-text="'优先级 ' + n.priority"></span>
+                      <button class="btn btn-ghost btn-sm text-destructive" @click="forget(n.ssid)">删除</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- 连接对话框 -->
+          <div x-show="dlg.open" class="dialog-overlay" @click="dlg.open = false"></div>
+          <div x-show="dlg.open" class="dialog-panel max-w-md" role="dialog" aria-modal="true" :aria-label="'连接 ' + dlg.ssid" @keydown.escape.window="dlg.open = false">
+            <h3 class="text-lg font-semibold" x-text="dlg.ssid"></h3>
+            <p class="mt-1 text-sm text-muted-foreground" x-show="caps && !caps.comboSupported && apRunning()">注意：连接后 AP 将被停止（本机网卡不支持并存）</p>
+            <form class="mt-4 space-y-4" @submit.prevent="doConnect()">
+              <div class="space-y-1.5" x-show="dlg.needPw">
+                <label class="label" :for="'dlg-pw'">WiFi 密码</label>
+                <input :id="'dlg-pw'" type="password" class="input" x-model="dlg.password" autofocus autocomplete="off">
+              </div>
+              <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" class="h-4 w-4 rounded border-input accent-[hsl(var(--primary))]" x-model="dlg.save">
+                保存该网络（用于自动重连与切换）
+              </label>
+              <p class="field-error" x-show="dlg.err" x-text="dlg.err"></p>
+              <div class="flex justify-end gap-2">
+                <button type="button" class="btn btn-outline" @click="dlg.open = false">取消</button>
+                <button type="submit" class="btn btn-primary" :disabled="dlg.busy">
+                  <span x-show="dlg.busy" class="h-4 w-4 animate-spin" x-html="spinner()"></span>
+                  <span x-text="dlg.busy ? '连接中…' : '连接'"></span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- ========== 系统 ========== -->
+        <div x-show="$store.app.page === 'system'" x-data="pageSystem()" x-transition.opacity.duration.200ms class="space-y-5">
+          <div>
+            <h1 class="text-xl font-semibold tracking-tight">系统</h1>
+            <p class="text-sm text-muted-foreground">主机资源与安全设置</p>
+          </div>
+          <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div class="card p-4"><span class="text-xs font-medium text-muted-foreground">CPU</span><div class="stat-num mt-1" x-text="($store.live.system.cpuPercent ?? 0).toFixed(0) + '%'"></div><div class="mt-1 text-xs text-muted-foreground" x-text="'负载 ' + ($store.live.system.load1 ?? 0).toFixed(2) + ' / ' + ($store.live.system.load5 ?? 0).toFixed(2)"></div></div>
+            <div class="card p-4"><span class="text-xs font-medium text-muted-foreground">内存</span><div class="stat-num mt-1" x-text="memPct() + '%'"></div><div class="mt-1 text-xs text-muted-foreground" x-text="($store.live.system.memUsedMB ?? 0) + ' / ' + ($store.live.system.memTotalMB ?? 0) + ' MB'"></div></div>
+            <div class="card p-4"><span class="text-xs font-medium text-muted-foreground">温度</span><div class="stat-num mt-1" x-text="($store.live.system.tempC ?? 0).toFixed(0) + '°C'"></div><div class="mt-1 text-xs text-muted-foreground" x-text="($store.live.system.tempC > 75 ? '偏高' : '正常')"></div></div>
+            <div class="card p-4"><span class="text-xs font-medium text-muted-foreground">运行时长</span><div class="stat-num mt-1" x-text="fmtDur($store.live.system.uptimeSec)"></div><div class="mt-1 text-xs text-muted-foreground" x-text="'磁盘 ' + ($store.live.system.diskUsedMB ?? 0) + '/' + ($store.live.system.diskTotalMB ?? 0) + 'MB'"></div></div>
+          </div>
+
+          <!-- 修改密码 -->
+          <form class="card" @submit.prevent="changePw()">
+            <div class="card-header"><h3 class="card-title">修改管理密码</h3><p class="card-desc">修改后所有已登录会话失效（含当前）</p></div>
+            <div class="card-content grid gap-4 sm:grid-cols-2">
+              <div class="space-y-1.5"><label class="label">当前密码</label><input type="password" class="input" x-model="pw.old" required autocomplete="current-password"></div>
+              <div class="space-y-1.5"><label class="label">新密码</label><input type="password" class="input" x-model="pw.new" required minlength="8" maxlength="63" autocomplete="new-password"><p class="field-hint">8–63 位</p></div>
+            </div>
+            <div class="card-footer justify-end gap-2">
+              <p class="field-error mr-auto" x-show="pwErr" x-text="pwErr"></p>
+              <button type="submit" class="btn btn-primary" :disabled="pwBusy">
+                <span x-show="pwBusy" class="h-4 w-4 animate-spin" x-html="spinner()"></span>修改密码
+              </button>
+            </div>
+          </form>
+
+          <!-- 进程状态 -->
+          <div class="card">
+            <div class="card-header"><h3 class="card-title">托管进程</h3><p class="card-desc">hostapd / dnsmasq 等</p></div>
+            <div class="card-content">
+              <template x-if="(procs() || []).length === 0">
+                <p class="text-sm text-muted-foreground">暂无托管进程运行</p>
+              </template>
+              <div class="space-y-2">
+                <template x-for="p in procs() || []" :key="p.name">
+                  <div class="flex items-center justify-between rounded-md border px-3 py-2">
+                    <span class="font-medium mono text-sm" x-text="p.name"></span>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs text-muted-foreground" x-text="'重启 ' + (p.starts || 0) + ' 次'"></span>
+                      <span class="badge" :class="{running:'badge-success', starting:'badge-warning', backoff:'badge-warning', failed:'badge-destructive', stopped:'badge-outline'}[p.state]" x-text="({running:'运行中', starting:'启动中', backoff:'退避重启', failed:'故障', stopped:'已停止'})[p.state]"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== 日志 ========== -->
+        <div x-show="$store.app.page === 'logs'" x-data="pageLogs()" x-transition.opacity.duration.200ms class="space-y-5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h1 class="text-xl font-semibold tracking-tight">日志</h1>
+              <p class="text-sm text-muted-foreground">最近 500 条应用日志</p>
+            </div>
+            <div class="flex gap-2">
+              <select class="input w-32" x-model="level" @change="load()">
+                <option value="">全部级别</option>
+                <option value="DEBUG">DEBUG</option>
+                <option value="INFO">INFO</option>
+                <option value="WARN">WARN</option>
+                <option value="ERROR">ERROR</option>
+              </select>
+              <button class="btn btn-outline" @click="paused = !paused" x-text="paused ? '继续滚动' : '暂停滚动'"></button>
+              <button class="btn btn-outline" @click="load()">刷新</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-content">
+              <template x-if="loading"><div class="space-y-2"><div class="skeleton h-4 w-full"></div><div class="skeleton h-4 w-4/5"></div><div class="skeleton h-4 w-3/5"></div></div></template>
+              <template x-if="!loading && loadErr">
+                <div class="empty">
+                  <p class="text-sm text-destructive" x-text="'日志加载失败：' + loadErr"></p>
+                  <button class="btn btn-outline btn-sm mt-2" @click="load()">重试</button>
+                </div>
+              </template>
+              <template x-if="!loading && !loadErr && items.length === 0">
+                <p class="py-8 text-center text-sm text-muted-foreground">无匹配日志</p>
+              </template>
+              <div class="max-h-[60vh] space-y-1 overflow-y-auto" x-ref="box">
+                <template x-for="(l, i) in items" :key="i">
+                  <div class="logline" :class="l.line.includes('level=ERROR') ? 'text-destructive' : (l.line.includes('level=WARN') ? 'text-warning' : '')" x-text="l.line"></div>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- 子进程诊断面板 -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">子进程诊断</h3>
+              <p class="card-desc">hostapd / dnsmasq / wpa_supplicant 的最近输出（启动失败先看这里）</p>
+            </div>
+            <div class="card-content space-y-3">
+              <template x-if="diag.length === 0">
+                <p class="text-sm text-muted-foreground">暂无托管进程</p>
+              </template>
+              <template x-for="p in diag" :key="p.name">
+                <details class="rounded-md border">
+                  <summary class="flex cursor-pointer items-center justify-between px-3 py-2 text-sm">
+                    <span class="flex items-center gap-2">
+                      <span class="dot" :class="{running:'dot-ok',starting:'dot-warn',backoff:'dot-warn',failed:'dot-err',stopped:'dot-off'}[p.state]"></span>
+                      <span class="mono font-medium" x-text="p.name"></span>
+                    </span>
+                    <span class="text-xs text-muted-foreground" x-text="({running:'运行中',starting:'启动中',backoff:'退避重启',failed:'故障',stopped:'已停止'})[p.state] + ' · 重启 ' + (p.starts || 0) + ' 次'"></span>
+                  </summary>
+                  <div class="border-t px-3 py-2">
+                    <template x-if="!p.log || p.log.length === 0">
+                      <p class="text-xs text-muted-foreground">（无输出）</p>
+                    </template>
+                    <div x-show="p.log && p.log.length" class="max-h-48 space-y-0.5 overflow-y-auto">
+                      <template x-for="(l, i) in (p.log || [])" :key="i">
+                        <div class="logline" x-text="l"></div>
+                      </template>
+                    </div>
+                    <p x-show="p.lastErr" class="logline text-destructive" x-text="'最近错误: ' + p.lastErr"></p>
+                  </div>
+                </details>
+              </template>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+  </template>
+
+  <!-- 移动端抽屉 -->
+  <div x-show="$store.app.drawer" x-transition.opacity class="dialog-overlay md:hidden" @click="$store.app.drawer = false"></div>
+  <div x-show="$store.app.drawer" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="-translate-x-full" x-transition:enter-end="translate-x-0"
+       x-transition:leave="transition ease-in duration-150" x-transition:leave-start="translate-x-0" x-transition:leave-end="-translate-x-full"
+       class="fixed inset-y-0 left-0 z-50 w-64 border-r bg-card p-3 md:hidden">
+    <div class="mb-2 flex items-center justify-between px-2 py-1">
+      <span class="font-semibold">AP Manager</span>
+      <button class="btn btn-ghost btn-sm" @click="$store.app.drawer = false" aria-label="关闭菜单">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+    <nav class="space-y-1">
+      <template x-for="item in $store.app.nav" :key="item.id">
+        <a :href="'#/' + item.id" class="nav-link" :class="$store.app.page === item.id && 'nav-link-active'" @click="$store.app.drawer = false">
+          <span x-html="$store.app.navIcon(item.icon)" class="h-4 w-4 shrink-0"></span>
+          <span x-text="item.label"></span>
+        </a>
+      </template>
+    </nav>
+  </div>
+
+  <!-- Toast 容器 -->
+  <div class="pointer-events-none fixed bottom-4 right-4 z-[60] flex flex-col gap-2">
+    <template x-for="t in $store.app.toasts" :key="t.id">
+      <div class="toast" role="status">
+        <span class="mt-0.5 h-2 w-2 shrink-0 rounded-full" :class="{'bg-success': t.type === 'success', 'bg-destructive': t.type === 'error', 'bg-primary': t.type === 'info'}"></span>
+        <div class="flex-1 text-sm" x-text="t.msg"></div>
+        <button class="text-muted-foreground hover:text-foreground" @click="$store.app.dismissToast(t.id)" aria-label="关闭">×</button>
+      </div>
+    </template>
+  </div>
+
+  <script>/* 全局助手在 app.js 中定义 */</script>
+</body>
+</html>

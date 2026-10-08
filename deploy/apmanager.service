@@ -1,0 +1,30 @@
+# apmanager.service —— root 版 systemd unit（推荐：hostapd/nft/tc 均需 CAP_NET_ADMIN）
+# 安装位置：/etc/systemd/system/apmanager.service
+[Unit]
+Description=AP Manager - wireless router daemon
+Documentation=file:/usr/local/share/apmanager/README.md
+After=network-pre.target
+Wants=network-pre.target
+Before=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/apmanager -config /etc/apmanager/config.yaml
+Restart=on-failure
+RestartSec=3
+# 日志走 journald（程序同时写 /var/log/apmanager/app.log 轮转文件）
+StandardOutput=journal
+StandardError=journal
+
+# 停止要等子进程（hostapd/dnsmasq）优雅退出
+KillMode=mixed
+TimeoutStopSec=20
+
+# 最小 capabilities 备选方案（不用 root）：
+#   User=apmanager
+#   AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+#   并给二进制打 file caps：setcap cap_net_admin,cap_net_raw+ep /usr/local/bin/apmanager
+#   注意：tc/某些 nl80211 操作在非 root 下偶有兼容问题，出问题请回退 root 方案。
+
+[Install]
+WantedBy=multi-user.target
