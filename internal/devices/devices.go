@@ -50,6 +50,8 @@ type Manager struct {
 	applyRates func()                     // 重建 tc 树（main 注入）
 	refreshNet func()                     // 重刷 nft/dnsmasq（黑名单后）
 	denyFile  string                      // hostapd 关联黑名单文件（拉黑时重写）
+	probeMu   sync.Mutex
+	probeAt   map[string]time.Time // 上次可达性探测时间（IP → time），30s 节流
 	cfg      *config.Config
 }
 
@@ -73,6 +75,32 @@ func (m *Manager) SetHooks(counters func() map[string][2]uint64, applyRates func
 	m.refreshNet = refreshNet
 }
 
+// probeLanCandidates 对租约里的 LAN 设备发一次 ping 探测（每个 IP 30s 节流，
+// 单轮最多 8 个）：促使内核刷新邻居表项，refresh() 的在线判定据此进行。
+// 设备不响应也没关系——邻居表会给出 INCOMPLETE/FAILED（离线）。
+func (m *Manager) probeLanCandidates(byMAC map[string]*Device) {
+	m.probeMu.Lock()
+	defer m.probeMu.Unlock()
+	if m.probeAt == nil {
+		m.probeAt = map[string]time.Time{}
+	}
+	now := time.Now()
+	n := 0
+	for _, d := range byMAC {
+		if d.IP == "" || n >= 8 {
+			continue
+		}
+		if time.Since(m.probeAt[d.IP]) < 30*time.Second {
+			continue
+		}
+		m.probeAt[d.IP] = now
+		n++
+		go func(ip string) {
+			priv.RunQuiet(1500*time.Millisecond, "ping", "-c1", "-W1", ip)
+		}(d.IP)
+	}
+}
+
 // Start 启动 5s 聚合循环（变化或 5s 全量推送，SSE devices topic）
 func (m *Manager) Start(stop <-chan struct{}) {
 	go func() {
@@ -92,10 +120,11 @@ func (m *Manager) Start(stop <-chan struct{}) {
 
 // refresh 多源聚合
 func (m *Manager) refresh() {
-	now := time.Now()
 	byMAC := map[string]*Device{}
 
-	// 1. 租约（有线+无线共同的 IP/主机名来源）
+	// 1. 租约（有线+无线共同的 IP/主机名来源）。
+	//    注意：租约有效期 ≠ 设备在线——设备离线后租约最长 12h 内仍有效，
+	//    在线状态由下面的 hostapd STA / 邻居表可达性判定。
 	for _, l := range m.leasesOf() {
 		d := byMAC[l.MAC]
 		if d == nil {
@@ -106,8 +135,11 @@ func (m *Manager) refresh() {
 		if l.Hostname != "" {
 			d.Hostname = l.Hostname
 		}
-		d.Online = l.Expiry > now.Unix() || l.Expiry == 0
 	}
+
+	// 1.5 主动探测：对租约里的 LAN 设备发一次 ping，促使内核刷新邻居表项，
+	//     下一步据此判定在线（每 IP 30s 节流，单轮最多 8 个，防 ARP 风暴）
+	m.probeLanCandidates(byMAC)
 
 	// 2. hostapd 在线 STA（无线来源 + 实时信号）
 	st := m.apm.Status()
@@ -127,8 +159,9 @@ func (m *Manager) refresh() {
 		d.Online = true
 	}
 
-	// 3. 邻居表兜底（有线设备：有 IP 无租约的场景）——只认 LAN 侧接口，
-	//    上行口(enx)的邻居是上游局域网设备，不属于本路由的客户端
+	// 3. 邻居表在线判定（有线设备 + 无热点时的离线判定）——只认 LAN 侧接口，
+	//    上行口(enx)的邻居是上游局域网设备，不属于本路由的客户端。
+	//    REACHABLE/DELAY/PROBE/PERMANENT 视为在线；STALE/FAILED/INCOMPLETE 视为离线。
 		if ne, err := priv.NeighDump(); err == nil {
 		lanSet := m.lanIfaces()
 		for _, n := range ne {
@@ -141,12 +174,24 @@ func (m *Manager) refresh() {
 			if isMulticast(n.IP) || isMulticastMAC(n.MAC) {
 				continue // mDNS/IGMP 组播邻居不是设备
 			}
+			online := n.State == "reachable" || n.State == "delay" || n.State == "probe" || n.State == "permanent"
 			d := byMAC[n.MAC]
-			if d == nil && n.IP != "" {
-				d = &Device{MAC: n.MAC, IP: n.IP, Source: "wired", Online: n.State == "reachable"}
+			if d == nil {
+				if n.IP == "" {
+					continue
+				}
+				d = &Device{MAC: n.MAC, IP: n.IP, Source: "wired", Online: online}
 				byMAC[n.MAC] = d
-			} else if d != nil && d.Source == "" {
+				continue
+			}
+			if d.Source == "" {
 				d.Source = "wired"
+			}
+			if d.IP == "" && n.IP != "" {
+				d.IP = n.IP
+			}
+			if online {
+				d.Online = true
 			}
 		}
 	}
