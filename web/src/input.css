@@ -1,0 +1,262 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Alpine 初始化前隐藏模板，防闪烁 */
+[x-cloak] { display: none !important; }
+
+/* 原生控件（select 下拉弹层、日期等）跟随页面主题配色，而非操作系统主题 */
+:root { color-scheme: light; }
+.dark { color-scheme: dark; }
+
+/* ============ 设计 token：明暗两套 CSS 变量 ============ */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 240 10% 3.9%;
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 3.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 3.9%;
+  --primary: 221 83% 53%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 240 4.8% 95.9%;
+  --secondary-foreground: 240 5.9% 10%;
+  --muted: 240 4.8% 95.9%;
+  --muted-foreground: 240 3.8% 46.1%;
+  --accent: 240 4.8% 95.9%;
+  --accent-foreground: 240 5.9% 10%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --success: 160 84% 32%;
+  --success-foreground: 0 0% 98%;
+  --warning: 32 95% 44%;
+  --warning-foreground: 0 0% 98%;
+  --border: 240 5.9% 90%;
+  --input: 240 5.9% 90%;
+  --ring: 221 83% 53%;
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: 240 10% 3.9%;
+  --foreground: 0 0% 98%;
+  --card: 240 6% 7%;
+  --card-foreground: 0 0% 98%;
+  --popover: 240 6% 7%;
+  --popover-foreground: 0 0% 98%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 240 3.7% 15.9%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 240 3.7% 13%;
+  --muted-foreground: 240 5% 64.9%;
+  --accent: 240 3.7% 15.9%;
+  --accent-foreground: 0 0% 98%;
+  --destructive: 0 62.8% 50%;
+  --destructive-foreground: 0 0% 98%;
+  --success: 158 64% 42%;
+  --success-foreground: 0 0% 98%;
+  --warning: 36 92% 55%;
+  --warning-foreground: 240 10% 3.9%;
+  --border: 240 3.7% 15.9%;
+  --input: 240 3.7% 17%;
+  --ring: 217 91% 60%;
+}
+
+/* ============ 基础 ============ */
+@layer base {
+  * { @apply border-border; }
+  html { scroll-behavior: smooth; }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "tnum";
+  }
+  ::selection { @apply bg-primary/20; }
+  :focus-visible { @apply outline-none ring-2 ring-ring ring-offset-1 ring-offset-background; }
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+}
+
+/* ============ 组件层：HTML 里不再堆散类 ============ */
+@layer components {
+  /* ---- Button ---- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium
+      transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+      focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50 select-none;
+    padding: 0.5rem 0.875rem; line-height: 1.25rem;
+  }
+  .btn-primary { @apply bg-primary text-primary-foreground shadow-xs hover:bg-primary/90; }
+  .btn-secondary { @apply bg-secondary text-secondary-foreground hover:bg-secondary/70; }
+  .btn-outline { @apply border border-input bg-background hover:bg-accent hover:text-accent-foreground; }
+  .btn-ghost { @apply hover:bg-accent hover:text-accent-foreground; }
+  .btn-destructive { @apply bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90; }
+  .btn-sm { padding: 0.25rem 0.625rem; @apply text-xs rounded-sm; }
+
+  /* ---- Card ---- */
+  .card {
+    @apply rounded-lg border bg-card text-card-foreground shadow-xs;
+  }
+  .card-header { @apply flex flex-col space-y-1 p-5 pb-3; }
+  .card-title { @apply text-base font-semibold leading-none tracking-tight; }
+  .card-desc { @apply text-sm text-muted-foreground; }
+  .card-content { @apply p-5 pt-2; }
+  .card-footer { @apply flex items-center p-5 pt-0; }
+
+  /* ---- Badge ---- */
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors;
+  }
+  .badge-default { @apply border-transparent bg-secondary text-secondary-foreground; }
+  .badge-success { @apply border-transparent bg-success/15 text-success; }
+  .badge-warning { @apply border-transparent bg-warning/15 text-warning; }
+  .badge-destructive { @apply border-transparent bg-destructive/15 text-destructive; }
+  .badge-outline { @apply text-foreground; }
+
+  /* ---- 表单 ---- */
+  .label { @apply text-sm font-medium leading-none select-none; }
+  .input {
+    @apply flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs
+      transition-colors placeholder:text-muted-foreground focus-visible:outline-none
+      focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  /* 所有 select 统一自定义箭头（原生箭头在跨平台下观感差且弹层主题不可控） */
+  select.input {
+    @apply appearance-none pr-9;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.65rem center;
+    background-size: 1em;
+  }
+  .select { @apply input appearance-none pr-8; background-position: right 0.5rem center; background-size: 1em; }
+  .field-hint { @apply mt-1 text-xs text-muted-foreground; }
+  .field-error { @apply mt-1 text-xs text-destructive; }
+
+  /* ---- Table ---- */
+  .tbl { @apply w-full text-sm; }
+  .tbl thead th { @apply h-10 px-3 text-left align-middle font-medium text-muted-foreground; }
+  .tbl tbody td { @apply px-3 py-2.5 align-middle border-t; }
+  .tbl tbody tr { @apply transition-colors hover:bg-muted/40; }
+
+  /* ---- Dialog ---- */
+  /* 面板用 inset+margin:auto 居中而非 translate，避免与过渡动画的 transform 互相顶掉（弹窗闪跳）。
+     性能三原则：遮罩不用 backdrop-filter（每帧全屏重采样，弱 GPU 卡顿元凶）；
+     面板提升合成层（scale 动画不重绘内容）；只动 transform/opacity。 */
+  .dialog-overlay {
+    @apply fixed inset-0 z-50 bg-black/60 animate-fade-in;
+  }
+  .dialog-panel {
+    @apply fixed left-0 right-0 top-[10vh] z-50 mx-auto w-[calc(100vw-2rem)] max-w-lg
+      rounded-lg border bg-card p-6 shadow-lg animate-scale-in max-h-[85vh] overflow-y-auto
+      transform-gpu will-change-transform;
+  }
+
+  /* ---- Toast ---- */
+  .toast {
+    @apply pointer-events-auto flex w-[calc(100vw-2rem)] max-w-sm items-start gap-2.5 rounded-lg border
+      bg-popover p-3.5 text-popover-foreground shadow-lg animate-slide-up;
+  }
+
+  /* ---- Switch ---- */
+  .switch {
+    @apply inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2
+      border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2
+      focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .switch-on { @apply bg-primary; }
+  .switch-off { @apply bg-input; }
+  .switch-thumb {
+    @apply pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0
+      transition-transform;
+  }
+  .switch-on .switch-thumb { transform: translateX(1rem); }
+  .switch-off .switch-thumb { transform: translateX(0); }
+
+  /* ---- Skeleton ---- */
+  .skeleton { @apply relative overflow-hidden rounded-md bg-muted; }
+  .skeleton::after {
+    content: "";
+    @apply absolute inset-0;
+    transform: translateX(-100%);
+    animation: apm-shimmer 1.6s infinite;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+  }
+  @keyframes apm-shimmer { 100% { transform: translateX(100%); } }
+
+  /* ---- EmptyState / Alert ---- */
+  .empty { @apply flex flex-col items-center justify-center gap-2 py-12 text-center; }
+  .alert { @apply flex w-full gap-3 rounded-lg border px-4 py-3 text-sm; }
+  .alert-info { @apply border-primary/30 bg-primary/5 text-foreground; }
+  .alert-warning { @apply border-warning/40 bg-warning/10 text-foreground; }
+  .alert-destructive { @apply border-destructive/40 bg-destructive/10 text-foreground; }
+
+  /* ---- 导航 ---- */
+  .nav-link {
+    @apply flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-muted-foreground
+      transition-colors hover:bg-accent hover:text-accent-foreground;
+  }
+  .nav-link-active { @apply bg-primary/10 text-primary hover:bg-primary/10 hover:text-primary; }
+  /* GL.iNet 式侧栏分组标题 */
+  .nav-group-label {
+    @apply px-3 pb-1 pt-4 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/70 select-none;
+  }
+
+  /* ---- 诊断输出终端 ---- */
+  /* 浅色：内嵌面板风（随卡片）；深色：经典黑终端 */
+  .terminal {
+    @apply mono overflow-auto rounded-lg border bg-muted/40 p-4 text-xs leading-5
+      text-foreground whitespace-pre-wrap break-all;
+  }
+  .terminal .t-dim { @apply text-muted-foreground; }
+  .dark .terminal { @apply border-zinc-800 bg-zinc-950 text-zinc-200; }
+  .dark .terminal .t-dim { @apply text-zinc-400; }
+
+  /* ---- 小号徽标 ---- */
+  .badge-sm { @apply px-1.5 py-0 text-[10px]; }
+
+  /* ---- 物理网口插座（RJ45 面板） ---- */
+  .jack-body { fill: hsl(var(--muted)); stroke: hsl(var(--border)); transition: fill 0.2s, stroke 0.2s; }
+  .jack-up .jack-body { fill: hsl(var(--success) / 0.10); stroke: hsl(var(--success) / 0.45); }
+  .jack-hole { fill: hsl(var(--background)); stroke: hsl(var(--border)); }
+  .jack-up .jack-hole { stroke: hsl(var(--success) / 0.35); }
+  .jack-pins line { stroke: hsl(var(--muted-foreground) / 0.45); }
+  .jack-up .jack-pins line { stroke: hsl(var(--success) / 0.55); }
+  /* 悬停详情浮层：默认隐藏，hover/focus 显示 */
+  .jack-tip {
+    @apply pointer-events-none absolute bottom-full left-1/2 z-40 mb-2 w-60 -translate-x-1/2 rounded-lg
+      border bg-popover p-3 text-left text-xs text-popover-foreground opacity-0 shadow-xl
+      transition-opacity duration-150;
+  }
+  .jack:hover .jack-tip, .jack:focus-visible .jack-tip { @apply opacity-100; }
+
+  /* ---- 状态点 ---- */
+  .dot { @apply inline-block h-2 w-2 rounded-full; }
+  .dot-ok { @apply bg-success animate-pulse-soft; }
+  .dot-warn { @apply bg-warning; }
+  .dot-err { @apply bg-destructive; }
+  .dot-off { @apply bg-muted-foreground/40; }
+
+  /* ---- 统计卡数值 ---- */
+  .stat-num { @apply text-2xl font-semibold tracking-tight tabular-nums; }
+
+  /* ---- 滚动条（暗色友好） ---- */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { @apply rounded-full bg-muted-foreground/25; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-muted-foreground/40; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---- 日志/等宽区 ---- */
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+  .logline { @apply mono text-xs leading-5 whitespace-pre-wrap break-all; }
+}
+
+/* 减少动态效果偏好：系统开启后所有动画/过渡近乎关闭 */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
