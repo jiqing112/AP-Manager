@@ -112,6 +112,8 @@ func (s *Server) routes() {
 	m.HandleFunc("PUT /api/system/schedule", s.auth(s.mutation(s.handleSchedulePut)))
 	m.HandleFunc("POST /api/wol", s.auth(s.mutation(s.handleWOL)))
 	m.HandleFunc("GET /api/upnp/status", s.auth(s.handleUpnpStatus))
+	m.HandleFunc("GET /api/ipv6", s.auth(s.handleIPv6Get))
+	m.HandleFunc("PUT /api/ipv6", s.auth(s.mutation(s.handleIPv6Put)))
 	m.HandleFunc("GET /api/firewall", s.auth(s.handleFirewallGet))
 	m.HandleFunc("PUT /api/firewall", s.auth(s.mutation(s.handleFirewallPut)))
 	m.HandleFunc("POST /api/diag/run", s.auth(s.handleDiagRun))
@@ -719,6 +721,84 @@ func (s *Server) handleWOL(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpnpStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.upnpStatus())
+}
+
+// ---- IPv6（默认关闭）----
+
+// v6Status 组装 IPv6 运行状态：上行口与各 LAN 段的全局/ULA v6 地址
+func (s *Server) v6Status() map[string]any {
+	up := s.netrtm.Upstream()
+	wan6 := []string{}
+	if up.Iface != "" {
+		if li, err := priv.AllLinks(); err == nil {
+			for _, l := range li {
+				if l.Name != up.Iface {
+					continue
+				}
+				for _, a := range l.Addrs {
+					if strings.Contains(a, ":") && !strings.HasPrefix(a, "fe80") {
+						wan6 = append(wan6, a)
+					}
+				}
+			}
+		}
+	}
+	lan6 := []map[string]string{}
+	if li, err := priv.AllLinks(); err == nil {
+		for _, seg := range s.cfg.LAN {
+			for _, l := range li {
+				if l.Name != seg.Bridge || l.Name == "" {
+					continue
+				}
+				for _, addr := range l.Addrs {
+					if strings.Contains(addr, ":") && !strings.HasPrefix(addr, "fe80") {
+						lan6 = append(lan6, map[string]string{"segment": seg.Name, "iface": seg.Bridge, "addr": addr})
+					}
+				}
+			}
+		}
+	}
+	dhcpv6 := false
+	for _, p := range s.sup.Status() {
+		if p["name"] == "dhclient6" && p["state"] == "running" {
+			dhcpv6 = true
+		}
+	}
+	return map[string]any{
+		"enabled":   s.cfg.IPv6.Enabled,
+		"nat66":     s.cfg.IPv6.Nat66,
+		"ulaPrefix": s.cfg.IPv6.ULAPrefix,
+		"wan6":      wan6,
+		"lan6":      lan6,
+		"dhcpv6":    dhcpv6,
+	}
+}
+
+func (s *Server) handleIPv6Get(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, s.v6Status())
+}
+
+func (s *Server) handleIPv6Put(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Enabled bool `json:"enabled"`
+		Nat66   bool `json:"nat66"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, 400, "请求体格式错误")
+		return
+	}
+	old := s.cfg.IPv6
+	s.cfg.IPv6.Enabled = body.Enabled
+	s.cfg.IPv6.Nat66 = body.Nat66
+	if err := s.cfg.Save(s.cfgPath); err != nil {
+		s.cfg.IPv6 = old
+		writeErr(w, 500, "保存配置失败: "+err.Error())
+		return
+	}
+	if s.NetRefresh != nil {
+		s.NetRefresh() // netrt 对账：起/停 dhclient6、ULA 地址、dnsmasq RA、NAT66
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "status": s.v6Status()})
 }
 
 // ---- 防火墙（端口转发 / 开放端口 / DMZ）----

@@ -1111,6 +1111,51 @@
             </div>
           </div>
 
+          <!-- IPv6（默认关闭） -->
+          <div class="card">
+            <div class="card-header flex-row items-center justify-between space-y-0">
+              <div>
+                <h3 class="card-title">IPv6</h3>
+                <p class="card-desc">默认关闭。开启后：WAN 侧 SLAAC/DHCPv6 自动获取；LAN 侧 ULA 前缀 + RA/SLAAC 通告客户端；NAT66 出网</p>
+              </div>
+              <button type="button" role="switch" :aria-checked="v6.enabled" class="switch" :class="v6.enabled ? 'switch-on' : 'switch-off'" @click="toggleIPv6()">
+                <span class="switch-thumb"></span>
+              </button>
+            </div>
+            <div class="card-content" x-show="v6.enabled" x-cloak>
+              <div class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+                <div>
+                  <p class="text-xs text-muted-foreground">上行口 IPv6 地址</p>
+                  <template x-if="v6.wan6.length === 0">
+                    <p class="mt-0.5 text-muted-foreground" x-text="v6.dhcpv6 ? '获取中…（上级无 v6 时将一直为空）' : '未获取'"></p>
+                  </template>
+                  <template x-for="(a, i) in v6.wan6" :key="i">
+                    <p class="mono mt-0.5 truncate font-medium" x-text="a"></p>
+                  </template>
+                </div>
+                <div>
+                  <p class="text-xs text-muted-foreground">LAN 段 ULA 地址</p>
+                  <template x-if="v6.lan6.length === 0">
+                    <p class="mt-0.5 text-muted-foreground">未配置</p>
+                  </template>
+                  <template x-for="(l, i) in v6.lan6" :key="i">
+                    <p class="mono mt-0.5 truncate font-medium"><span class="text-muted-foreground" x-text="l.segment + ' · '"></span><span x-text="l.addr"></span></p>
+                  </template>
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+                    <span class="text-sm">NAT66（ULA 经上行口伪装出网）
+                      <span class="block text-xs text-muted-foreground">上级未提供前缀委托时的兜底；有原生 v6/PD 时可关闭以获得端到端地址</span>
+                    </span>
+                    <button type="button" role="switch" :aria-checked="v6.nat66" class="switch" :class="v6.nat66 ? 'switch-on' : 'switch-off'" @click="toggleNat66()">
+                      <span class="switch-thumb"></span>
+                    </button>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- WAN 上网配置修改对话框（GL.iNet 有线网络配置式） -->
           <template x-if="wanDlg.open">
             <div>

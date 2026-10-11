@@ -13,7 +13,7 @@ func TestRenderDnsmasq(t *testing.T) {
 		{Name: "home", Bridge: "br-lan", Subnet: "192.168.50.1/24",
 			DHCPPool: [2]string{"192.168.50.100", "192.168.50.200"}, LeaseHours: 12, AP: true},
 	}
-	conf := RenderDnsmasq(lans, []string{"223.5.5.5"}, Paths{RunDir: "/run", StateDir: "/var/lib"}, []string{"aa:bb:cc:dd:ee:ff"})
+	conf := RenderDnsmasq(lans, []string{"223.5.5.5"}, Paths{RunDir: "/run", StateDir: "/var/lib"}, []string{"aa:bb:cc:dd:ee:ff"}, nil)
 	for _, want := range []string{
 		"dhcp-range=192.168.50.100,192.168.50.200,255.255.255.0,12h", // 掩码必须是点分而非 ffffff00
 		"dhcp-option=3,192.168.50.1",  // 网关 = 段主机地址而非网络地址
@@ -38,7 +38,7 @@ func TestRenderNft(t *testing.T) {
 		{Name: "guest", Bridge: "br-guest", Subnet: "192.168.60.1/24", Isolation: true},
 	}
 	zones := map[string]string{"guest_to_lan": "deny", "lan_to_lan": "allow"}
-	rs, err := RenderNftFull(lans, "enx0", zones, "wlp1s0", []string{"192.168.60.66"}, true, nil)
+	rs, err := RenderNftFull(lans, "enx0", zones, "wlp1s0", []string{"192.168.60.66"}, true, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestRenderNftFirewall(t *testing.T) {
 		},
 		DMZ: config.DMZ{},
 	}
-	rs, err := RenderNftFull(lans, "enx0", map[string]string{}, "wlp1s0", nil, false, fw)
+	rs, err := RenderNftFull(lans, "enx0", map[string]string{}, "wlp1s0", nil, false, fw, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestRenderNftNoWANNoFW(t *testing.T) {
 	fw := &config.Firewall{
 		PortForwards: []config.PortForward{{Name: "x", Proto: "tcp", WANPort: 80, DestIP: "192.168.50.9", DestPort: 80, Enabled: true}},
 	}
-	rs, err := RenderNftFull(lans, "", map[string]string{}, "wlp1s0", nil, false, fw)
+	rs, err := RenderNftFull(lans, "", map[string]string{}, "wlp1s0", nil, false, fw, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,5 +160,44 @@ func TestFirewallActive(t *testing.T) {
 	}
 	if !firewallActive(&config.Firewall{OpenPorts: []config.OpenPort{{Port: 22, Enabled: true}}}) {
 		t.Error("启用中的开放端口应视为 active")
+	}
+}
+
+// TestRenderIPv6 NAT66 + RA/SLAAC 渲染
+func TestRenderIPv6(t *testing.T) {
+	lans := []config.LANSeg{
+		{Name: "home", Bridge: "br-lan", Subnet: "192.168.50.1/24"},
+	}
+	v6 := &config.IPv6Config{Enabled: true, Nat66: true, ULAPrefix: "fd52:3a91::/48"}
+	rs, err := RenderNftFull(lans, "enx0", map[string]string{}, "", nil, false, nil, v6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rs, `ip6 saddr fd52:3a91::/48 oifname "enx0" masquerade`) {
+		t.Errorf("缺少 NAT66 规则\n%s", rs)
+	}
+	conf := RenderDnsmasq(lans, []string{"223.5.5.5"}, Paths{RunDir: "/run", StateDir: "/var/lib"}, nil, v6)
+	for _, want := range []string{"enable-ra", "dhcp-range=::,constructor:br-lan,ra-names,slaac,64"} {
+		if !strings.Contains(conf, want) {
+			t.Errorf("缺少 %q\n%s", want, conf)
+		}
+	}
+	// 关闭时不应出现
+	rs2, _ := RenderNftFull(lans, "enx0", map[string]string{}, "", nil, false, nil, nil)
+	if strings.Contains(rs2, "NAT66") {
+		t.Errorf("IPv6 关闭时不应有 NAT66\n%s", rs2)
+	}
+	conf2 := RenderDnsmasq(lans, []string{"223.5.5.5"}, Paths{RunDir: "/run", StateDir: "/var/lib"}, nil, nil)
+	if strings.Contains(conf2, "enable-ra") {
+		t.Errorf("IPv6 关闭时不应有 RA\n%s", conf2)
+	}
+}
+
+func TestULASubnet(t *testing.T) {
+	if got := ulaSubnet("fd52:3a91::/48", 1); got != "fd52:3a91:0:1::1/64" {
+		t.Errorf("ulaSubnet = %q", got)
+	}
+	if got := ulaSubnet("fd52:3a91::/48", 3); got != "fd52:3a91:0:3::1/64" {
+		t.Errorf("ulaSubnet = %q", got)
 	}
 }

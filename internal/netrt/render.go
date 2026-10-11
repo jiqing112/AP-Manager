@@ -24,7 +24,7 @@ func defaultRouteSafe() (string, error) {
 // - 每个 LAN 段一条 dhcp-range；AP 段的接口写 interface=（桥形态写桥名）
 // - 黑名单 MAC 用 dhcp-host=MAC,ignore 拒发地址
 // - 上行口写进 except-interface，双保险保证绝不在上行提供 DHCP/DNS（安全红线）
-func RenderDnsmasq(lans []config.LANSeg, dnsUpstreams []string, paths Paths, blockedMACs []string) string {
+func RenderDnsmasq(lans []config.LANSeg, dnsUpstreams []string, paths Paths, blockedMACs []string, v6 *config.IPv6Config) string {
 	var b strings.Builder
 	p := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
 
@@ -58,6 +58,20 @@ func RenderDnsmasq(lans []config.LANSeg, dnsUpstreams []string, paths Paths, blo
 		p("dhcp-host=%s,ignore # 黑名单拒发地址", mac)
 	}
 	p("dhcp-leasefile=%s/dnsmasq.leases", paths.StateDir)
+	// IPv6（默认关闭）：开启后对每个段做 RA/SLAAC 通告（constructor 跟随桥上
+	// 实际 IPv6 地址——PD 拿到全局前缀或 ULA 均自动生效）
+	if v6 != nil && v6.Enabled {
+		p("")
+		p("# ---- IPv6 RA/SLAAC ----")
+		p("enable-ra")
+		for _, seg := range lans {
+			iface := seg.Bridge
+			if iface == "" {
+				continue // AP 直挂段由 RenderDnsmasqWithIface 注入 interface
+			}
+			p("dhcp-range=::,constructor:%s,ra-names,slaac,64 # %s", iface, seg.Name)
+		}
+	}
 	p("")
 	p("# ---- 监听范围 ----")
 	for _, seg := range lans {
@@ -76,13 +90,19 @@ func RenderDnsmasq(lans []config.LANSeg, dnsUpstreams []string, paths Paths, blo
 const apIfacePlaceholder = ""
 
 // RenderDnsmasqWithIface 同上，但显式指定 AP 直挂接口（阶段一：无桥，直接无线口）
-func RenderDnsmasqWithIface(lans []config.LANSeg, dnsUpstreams []string, paths Paths, apIface string, blockedMACs []string) string {
-	base := RenderDnsmasq(lans, dnsUpstreams, paths, blockedMACs)
+func RenderDnsmasqWithIface(lans []config.LANSeg, dnsUpstreams []string, paths Paths, apIface string, blockedMACs []string, v6 *config.IPv6Config) string {
+	base := RenderDnsmasq(lans, dnsUpstreams, paths, blockedMACs, v6)
 	if apIface == "" {
 		return base
 	}
-	return strings.Replace(base, "# ---- 监听范围 ----",
+	base = strings.Replace(base, "# ---- 监听范围 ----",
 		"# ---- 监听范围 ----\ninterface="+apIface, 1)
+	// AP 直挂段（无桥）的 RA 也要补上（constructor 跟随 AP 接口）
+	if v6 != nil && v6.Enabled {
+		base = strings.Replace(base, "# ---- IPv6 RA/SLAAC ----",
+			"# ---- IPv6 RA/SLAAC ----\ndhcp-range=::,constructor:"+apIface+",ra-names,slaac,64", 1)
+	}
+	return base
 }
 func uplinkProtectList() []string {
 	dr, err := defaultRouteSafe()
@@ -103,15 +123,15 @@ func uplinkProtectList() []string {
 //
 // 段接口名：有桥用桥名，无桥（AP 直挂）用 AP 接口名。
 func RenderNft(lans []config.LANSeg, uplinkIface string, zones map[string]string, apIface string) (string, error) {
-	return RenderNftFull(lans, uplinkIface, zones, apIface, nil, true, nil)
+	return RenderNftFull(lans, uplinkIface, zones, apIface, nil, true, nil, nil)
 }
 
 // RenderNftFull 完整版：含按设备计数动态集与黑名单 IP drop、防火墙规则
-func RenderNftFull(lans []config.LANSeg, uplinkIface string, zones map[string]string, apIface string, blockedIPs []string, withCounters bool, fw *config.Firewall) (string, error) {
-	return renderNft(lans, uplinkIface, zones, apIface, blockedIPs, withCounters, fw)
+func RenderNftFull(lans []config.LANSeg, uplinkIface string, zones map[string]string, apIface string, blockedIPs []string, withCounters bool, fw *config.Firewall, v6 *config.IPv6Config) (string, error) {
+	return renderNft(lans, uplinkIface, zones, apIface, blockedIPs, withCounters, fw, v6)
 }
 
-func renderNft(lans []config.LANSeg, uplinkIface string, zones map[string]string, apIface string, blockedIPs []string, withCounters bool, fw *config.Firewall) (string, error) {
+func renderNft(lans []config.LANSeg, uplinkIface string, zones map[string]string, apIface string, blockedIPs []string, withCounters bool, fw *config.Firewall, v6 *config.IPv6Config) (string, error) {
 	ifaceOf := func(seg config.LANSeg) string {
 		if seg.Bridge != "" {
 			return seg.Bridge
@@ -216,6 +236,10 @@ func renderNft(lans []config.LANSeg, uplinkIface string, zones map[string]string
 	if uplinkIface != "" {
 		for _, seg := range lans {
 			p("    ip saddr %s oifname %q masquerade comment \"LAN %s NAT 上行\"", subnetOf(seg.Subnet), uplinkIface, seg.Name)
+		}
+		// IPv6 NAT66：ULA 段经上行口出网（默认开；上级 PD 可用时可在 UI 关闭）
+		if v6 != nil && v6.Enabled && v6.Nat66 && v6.ULAPrefix != "" {
+			p("    ip6 saddr %s oifname %q masquerade comment \"LAN IPv6 NAT66\"", strings.TrimSuffix(strings.SplitN(v6.ULAPrefix, "/", 2)[0], "::")+"::/48", uplinkIface)
 		}
 	}
 	p("  }")

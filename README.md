@@ -18,6 +18,7 @@
 - **局域网**：网口可视化面板（RJ45 插座图、角色着色、插线高亮、悬停看地址/速率）；多 LAN 段（一桥一子网一池）、访客隔离
 - **防火墙**：端口转发（TCP/UDP/TCP+UDP）、开放端口、DMZ 主机、UPnP/NAT-PMP（miniupnpd 托管）；区域隔离矩阵；只操作自建 `apmanager` nftables 表
 - **DNS 上游**：手动指定或自动跟随上级，保存即重渲染 dnsmasq
+- **IPv6**（默认关闭，需手动开启）：WAN 侧 SLAAC + DHCPv6 自动获取；LAN 侧 ULA 前缀（首次开启自动生成）+ dnsmasq RA/SLAAC 通告客户端；NAT66 兜底出网（可关闭）
 
 ### 设备与服务
 - **客户端管理**：DHCP 租约 + 邻居表 + hostapd 在线列表聚合；备注、按设备上下行限速（tc HTB）、踢下线、MAC 拉黑、**网络唤醒（WOL）**
@@ -102,6 +103,10 @@ dns:
   upstream: []                # 空 = 自动跟随上级；指定后 dnsmasq 按此转发
 system:
   reboot_at: ""               # 每日定时重启 HH:MM，空 = 禁用
+ipv6:
+  enabled: false              # 默认关闭，UI「互联网」页手动开启
+  ula_prefix: "fd52:3a91::/48" # 留空自动生成
+  nat66: true                 # ULA 经上行口 NAT66 出网
 admin: { port: 8080, bind: "0.0.0.0" }
 ```
 
@@ -126,7 +131,7 @@ Web UI (Tailwind + Alpine.js + SSE, go:embed 单二进制)
 ## 已知限制
 
 - **AP + STA 并发**：RTL8821CE（rtw88）实测驱动强制互斥（EBUSY）——单卡"无线扩展"时热点会停止，完整扩展器需支持并发的网卡（MT7921 等）或第二片无线网卡
-- **IPv6** 未支持（架构预留）
+- **IPv6** v1 形态：SLAAC/DHCPv6 上行 + ULA/RA + NAT66；DHCPv6-PD 前缀委托（原生 v6 端到端）在路线图上
 - **WDS** 未实现（模态框内如实置灰）
 - 管理界面假设部署在可信内网；若上行口为公网直连，请务必配置防火墙限制管理端口
 

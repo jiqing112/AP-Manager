@@ -3,10 +3,12 @@
 package config
 
 import (
+	"crypto/rand"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -27,6 +29,7 @@ type Config struct {
 	Firewall  Firewall        `yaml:"firewall"` // WAN 侧防火墙：端口转发 / 开放端口 / DMZ
 	DNS       DNSConfig       `yaml:"dns"`      // DNS 上游覆盖（空 = 自动跟随 WAN/系统）
 	System    System          `yaml:"system"`   // 定时任务等系统级配置
+	IPv6      IPv6Config      `yaml:"ipv6"`     // IPv6（默认关闭，需手动开启）
 	Admin     Admin           `yaml:"admin"`
 
 	// 网络模式（GL.iNet 式）：router=路由（默认）；ap=有线接入点（本机桥进上级网络，
@@ -34,6 +37,15 @@ type Config struct {
 	NetworkMode string `yaml:"network_mode,omitempty" json:"networkMode,omitempty"` // router | ap
 	// APWanPort 记忆 AP 模式下被收编的原 WAN 口，切回路由模式时恢复其角色
 	APWanPort string `yaml:"ap_wan_port,omitempty" json:"apWanPort,omitempty"`
+}
+
+// IPv6Config IPv6 支持（默认关闭）。
+// v1 形态：WAN 侧 SLAAC + DHCPv6 获取地址；LAN 侧 ULA 前缀 + dnsmasq RA/SLAAC
+// 通告 + NAT66 兜底出网。PD 前缀委托列入后续版本。
+type IPv6Config struct {
+	Enabled   bool   `yaml:"enabled" json:"enabled"`
+	ULAPrefix string `yaml:"ula_prefix" json:"ulaPrefix"` // fdxx::/48，空则自动生成并持久化
+	Nat66     bool   `yaml:"nat66" json:"nat66"`          // ULA 经上行口 NAT66 出网（默认开）
 }
 
 // System 系统级定时任务
@@ -208,6 +220,7 @@ func Default() *Config {
 			"iot_to_lan":   "deny",
 			"lan_to_lan":   "allow",
 		},
+		IPv6:      IPv6Config{Enabled: false, Nat66: true}, // 默认关闭，ULA 由 fillDefaults 生成
 		Admin: Admin{Port: 8080, Bind: "127.0.0.1"},
 	}
 }
@@ -277,6 +290,9 @@ func (c *Config) fillDefaults() {
 	if c.Admin.Port == 0 {
 		c.Admin.Port = d.Admin.Port
 	}
+	if c.IPv6.ULAPrefix == "" {
+		c.IPv6.ULAPrefix = genULA()
+	}
 	if c.Admin.Bind == "" {
 		c.Admin.Bind = d.Admin.Bind
 	}
@@ -316,6 +332,11 @@ func (c *Config) Validate() []string {
 	for i, srv := range c.DNS.Upstream {
 		if net.ParseIP(srv) == nil {
 			errs = append(errs, fmt.Sprintf("dns.upstream[%d] %q 不是合法的 IP 地址", i, srv))
+		}
+	}
+	if c.IPv6.ULAPrefix != "" {
+		if _, _, err := net.ParseCIDR(c.IPv6.ULAPrefix); err != nil || !strings.HasPrefix(c.IPv6.ULAPrefix, "fd") {
+			errs = append(errs, "ipv6.ula_prefix 应为 fd 开头的 /48 前缀（如 fd52:3a91::/48）")
 		}
 	}
 	if c.System.RebootAt != "" {
@@ -385,6 +406,13 @@ func (c *Config) Save(path string) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// genULA 生成随机 ULA /48 前缀（fd00::/8 内，RFC 4193：40 位随机全局 ID）
+func genULA() string {
+	b := make([]byte, 5)
+	_, _ = rand.Read(b)
+	return fmt.Sprintf("fd%02x:%02x%02x::/48", b[0]&0x3F, b[1], b[2])
 }
 
 // LANForAP 返回 AP 挂的网段（找不到返回 nil）

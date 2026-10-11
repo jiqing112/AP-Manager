@@ -48,6 +48,7 @@ type Manager struct {
 	failCount   int
 	okCount     int
 	dnsRunning  bool
+	v6Iface     string // IPv6 DHCPv6 客户端当前运行的上行口
 
 	// RefreshFn 上游变化时重刷网络面（main 注入，携带真实 AP 运行态，避免循环依赖）
 	RefreshFn func()
@@ -177,6 +178,16 @@ func (m *Manager) Refresh(apRunning bool) {
 	}
 
 	lans := m.ActiveLANs(cfg, apRunning)
+
+	// IPv6（默认关闭）：开启时对账，关闭时撤场
+	if cfg.NetworkMode == "ap" {
+		m.stopIPv6(nil) // AP 模式：v6 同样交给上级网络
+	} else if cfg.IPv6.Enabled {
+		priv.EnableIPv6Forward()
+		m.reconcileIPv6(cfg, m.currentUplinkIface(), lans)
+	} else {
+		m.stopIPv6(lans)
+	}
 	// 纯 WAN 形态（AP 停、无 LAN）但配了防火墙规则时也要渲染 nft 表，
 	// 否则端口转发/DMZ 在"只当路由器不当 AP"时不生效
 	if len(lans) > 0 || apRunning || firewallActive(&cfg.Firewall) {
@@ -185,7 +196,7 @@ func (m *Manager) Refresh(apRunning bool) {
 		if m.BlockedIPsFn != nil {
 			blocked = m.BlockedIPsFn()
 		}
-		ruleset, err := RenderNftFull(lans, m.currentUplinkIface(), cfg.ZonePolicy, cfg.AP.Interface, blocked, m.CountersEnabled, &cfg.Firewall)
+		ruleset, err := RenderNftFull(lans, m.currentUplinkIface(), cfg.ZonePolicy, cfg.AP.Interface, blocked, m.CountersEnabled, &cfg.Firewall, &cfg.IPv6)
 		if err != nil {
 			m.log.Error("生成 nft 规则失败", "err", err)
 		} else if err := priv.NftApply(ruleset); err != nil {
@@ -200,7 +211,7 @@ func (m *Manager) Refresh(apRunning bool) {
 		if m.BlockedMACsFn != nil {
 			blockedMACs = m.BlockedMACsFn()
 		}
-		conf := RenderDnsmasqWithIface(lans, m.dnsUpstreams(cfg), m.paths, apIface, blockedMACs)
+		conf := RenderDnsmasqWithIface(lans, m.dnsUpstreams(cfg), m.paths, apIface, blockedMACs, &cfg.IPv6)
 		confPath := m.paths.RunDir + "/dnsmasq.conf"
 		if err := priv.WriteFileAtomic(confPath, []byte(conf), 0o644); err != nil {
 			m.log.Error("写 dnsmasq.conf 失败", "err", err)
@@ -240,6 +251,100 @@ func (m *Manager) Refresh(apRunning bool) {
 			m.mu.Unlock()
 		}
 	}
+}
+
+// reconcileIPv6 IPv6 期望态对账：
+//   - WAN 侧：上行口 accept_ra=2（SLAAC）+ dhclient -6（DHCPv6 地址），上行口变化则重启
+//   - LAN 侧：每个生效段桥配 ULA 子网网关地址（ULA/48 内按段序递增），dnsmasq
+//     渲染 RA/SLAAC 通告（renderDnsmasq 内由 v6 开关驱动）
+//   - NAT66：renderNft 内由 v6 开关渲染 masquerade
+func (m *Manager) reconcileIPv6(cfg *config.Config, uplink string, lans []config.LANSeg) {
+	ula := cfg.IPv6.ULAPrefix
+	// 1) LAN 段 ULA 网关地址（fdXX:YY:0:N::1/64，N 为段序）
+	for i, seg := range lans {
+		iface := seg.Bridge
+		if iface == "" {
+			iface = cfg.AP.Interface
+		}
+		if iface == "" || ula == "" {
+			continue
+		}
+		ula6 := ulaSubnet(ula, i+1)
+		// 已有该地址则跳过（幂等）
+		li, err := priv.LinkByName(iface)
+		if err == nil && hasV6(li.Addrs, ula6) {
+			continue
+		}
+		if err := priv.AddrReplace(iface, ula6); err != nil {
+			m.log.Warn("IPv6: 配置 LAN 段 ULA 地址失败", "iface", iface, "addr", ula6, "err", err)
+		} else {
+			m.log.Info("IPv6: LAN 段 ULA 网关已配置", "iface", iface, "addr", ula6)
+		}
+	}
+	// 2) WAN 侧 DHCPv6 客户端（上行口变化或未运行则重启）
+	if uplink == "" || priv.Mode == "dev" {
+		return
+	}
+	m.mu.Lock()
+	cur := m.v6Iface
+	m.mu.Unlock()
+	if cur == uplink {
+		return
+	}
+	if cur != "" {
+		m.sup.Stop("dhclient6", 4*time.Second)
+	}
+	spec := &supervisor.Spec{
+		Name:    "dhclient6",
+		Argv:    []string{"dhclient", "-6", "-v", "-pf", m.paths.RunDir + "/dhclient6.pid", "-lf", m.paths.RunDir + "/dhclient6.leases", uplink},
+		LogRing: supervisor.NewRing(200),
+	}
+	if err := m.sup.Start(spec); err != nil {
+		m.log.Warn("IPv6: 启动 dhclient -6 失败（上级可能只提供 SLAAC，不影响）", "err", err)
+		return
+	}
+	m.mu.Lock()
+	m.v6Iface = uplink
+	m.mu.Unlock()
+	m.log.Info("IPv6: DHCPv6 客户端已启动", "iface", uplink)
+}
+
+// stopIPv6 撤场：停 DHCPv6 客户端，清 LAN 段桥上的 ULA 地址（保留 fe80）
+func (m *Manager) stopIPv6(lans []config.LANSeg) {
+	m.mu.Lock()
+	ran := m.v6Iface != ""
+	m.v6Iface = ""
+	m.mu.Unlock()
+	if ran {
+		m.sup.Stop("dhclient6", 4*time.Second)
+		m.log.Info("IPv6: DHCPv6 客户端已停止")
+	}
+	for _, seg := range lans {
+		iface := seg.Bridge
+		if iface != "" {
+			_ = priv.AddrFlushV6(iface)
+		}
+	}
+}
+
+// ulaSubnet 从 /48 ULA 前缀取第 subnetIndex 个 /64 的网关地址
+func ulaSubnet(ula string, idx int) string {
+	base := strings.TrimSuffix(strings.SplitN(ula, "/", 2)[0], "::") // fd52:3a91
+	if strings.Count(base, ":") == 1 {
+		return fmt.Sprintf("%s:0:%d::1/64", base, idx)
+	}
+	return fmt.Sprintf("%s:%d::1/64", base, idx)
+}
+
+// hasV6 地址列表里是否含目标 v6 地址（忽略前缀长度）
+func hasV6(addrs []string, want string) bool {
+	w := strings.SplitN(want, "/", 2)[0]
+	for _, a := range addrs {
+		if strings.SplitN(a, "/", 2)[0] == w && !strings.HasPrefix(a, "fe80") {
+			return true
+		}
+	}
+	return false
 }
 
 // firewallActive 是否存在任何启用中的防火墙规则（端口转发/开放端口/DMZ）

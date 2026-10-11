@@ -319,6 +319,44 @@ func EnableIPForward() error {
 	return sysctlWrite("/proc/sys/net/ipv4/ip_forward", "1")
 }
 
+// EnableIPv6Forward 开启 IPv6 转发并允许在上行口接受 RA（转发开启时内核默认
+// 忽略 RA，accept_ra=2 是路由器场景的标准要求）
+func EnableIPv6Forward() error {
+	if Mode == "dev" {
+		return nil
+	}
+	_ = sysctlWrite("/proc/sys/net/ipv6/conf/all/forwarding", "1")
+	_ = sysctlWrite("/proc/sys/net/ipv6/conf/all/accept_ra", "2")
+	_ = sysctlWrite("/proc/sys/net/ipv6/conf/default/accept_ra", "2")
+	return nil
+}
+
+// AddrFlushV6 只清某接口的 IPv6 全局地址（保留 fe80 链路本地与 v4）。
+// IPv6 关闭时撤 ULA/获取地址用；比 AddrFlush 温和。
+func AddrFlushV6(name string) error {
+	if Mode == "dev" {
+		return nil
+	}
+	l, err := netlink.LinkByName(name)
+	if err != nil {
+		return err
+	}
+	addrs, err := netlink.AddrList(l, netlink.FAMILY_V6)
+	if err != nil {
+		return err
+	}
+	var firstErr error
+	for _, a := range addrs {
+		if a.IP.IsLinkLocalUnicast() {
+			continue
+		}
+		if err := netlink.AddrDel(l, &a); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
 func sysctlWrite(path, val string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {

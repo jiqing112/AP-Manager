@@ -33,3 +33,7 @@ func DefaultRoute4() (DefaultRoute, error) {
 func NeighDump() ([]NeighEntry, error) { return nil, nil }
 func EnableIPForward() error           { return nil }
 func DetectHostapdVersion() int        { return 210 }
+
+func EnableIPv6Forward() error { return nil }
+
+func AddrFlushV6(name string) error { return nil }

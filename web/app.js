@@ -766,7 +766,7 @@ document.addEventListener("alpine:init", () => {
     pendingId: null, pendingDeadline: 0,
     async init() {
       // WAN 页激活时重拉拓扑（上游切换后网卡地址会变）
-      window.addEventListener("apm:page-wan", () => this.reload());
+      window.addEventListener("apm:page-wan", () => { this.reload(); this.loadIPv6(); });
       // 每秒驱动倒计时
       setInterval(() => { this._tick++; if (this.pendingId && Date.now() > this.pendingDeadline) this.reload(); }, 1000);
     },
@@ -792,6 +792,32 @@ document.addEventListener("alpine:init", () => {
       return this.isValidIP(ip) && /^\d{1,2}$/.test(pfx) && n >= 8 && n <= 32;
     },
     pending() { return this.pendingId ? { description: "WAN 上网配置变更" } : null; },
+
+    /* ---- IPv6（默认关闭）---- */
+    v6: { enabled: false, nat66: true, ulaPrefix: "", wan6: [], lan6: [], dhcpv6: false },
+    v6Busy: false,
+    async loadIPv6() {
+      try { this.v6 = { ...this.v6, ...(await apiFetch("/api/ipv6")) }; } catch (e) { /* 忽略 */ }
+    },
+    async toggleIPv6() {
+      const next = !this.v6.enabled;
+      this.v6Busy = true;
+      try {
+        const r = await apiFetch("/api/ipv6", { method: "PUT", body: { enabled: next, nat66: this.v6.nat66 } });
+        this.v6 = { ...this.v6, ...r.status };
+        Alpine.store("app").toast(next ? "IPv6 已开启：WAN 侧 SLAAC/DHCPv6，LAN 侧 ULA+RA+NAT66" : "IPv6 已关闭", "success");
+        this.reload();
+      } catch (e) { Alpine.store("app").toast("切换失败：" + e.message, "error"); }
+      finally { this.v6Busy = false; }
+    },
+    async toggleNat66() {
+      this.v6Busy = true;
+      try {
+        const r = await apiFetch("/api/ipv6", { method: "PUT", body: { enabled: this.v6.enabled, nat66: !this.v6.nat66 } });
+        this.v6 = { ...this.v6, ...r.status };
+      } catch (e) { Alpine.store("app").toast("切换失败：" + e.message, "error"); }
+      finally { this.v6Busy = false; }
+    },
 
     /* ---- DNS 上游修改 ---- */
     dnsDlg: { open: false, rows: ["", ""], busy: false, err: "" },
